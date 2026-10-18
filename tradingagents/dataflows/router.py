@@ -22,10 +22,16 @@ from tradingagents.dataflows.vendors.alpha_vantage import (
 from tradingagents.dataflows.vendors.finmind import (
     get_balance_sheet as get_finmind_balance_sheet,
     get_cashflow as get_finmind_cashflow,
+    get_chip_summary as get_finmind_chip_summary,
+    get_foreign_holding as get_finmind_foreign_holding,
     get_fundamentals as get_finmind_fundamentals,
     get_income_statement as get_finmind_income_statement,
     get_indicators as get_finmind_indicators,
+    get_institutional_flows as get_finmind_institutional_flows,
+    get_margin_short as get_finmind_margin_short,
     get_news as get_finmind_news,
+    get_peer_valuation as get_finmind_peer_valuation,
+    get_securities_lending as get_finmind_securities_lending,
     get_stock_data as get_finmind_stock_data,
 )
 from tradingagents.dataflows.vendors.fred import get_macro_data as get_fred_macro_data
@@ -72,7 +78,18 @@ TOOLS_CATEGORIES = {
             "get_fundamentals",
             "get_balance_sheet",
             "get_cashflow",
-            "get_income_statement"
+            "get_income_statement",
+            "get_peer_valuation",
+        ]
+    },
+    "chip_data": {
+        "description": "Taiwan chip data: institutional flows, margin, foreign holding, lending",
+        "tools": [
+            "get_chip_summary",
+            "get_institutional_flows",
+            "get_margin_short",
+            "get_foreign_holding",
+            "get_securities_lending",
         ]
     },
     "news_data": {
@@ -109,6 +126,8 @@ OPTIONAL_CATEGORIES = {"macro_data", "prediction_markets"}
 SYMBOL_METHODS = {
     "get_stock_data", "get_indicators", "get_fundamentals", "get_balance_sheet",
     "get_cashflow", "get_income_statement", "get_news", "get_insider_transactions",
+    "get_peer_valuation", "get_chip_summary", "get_institutional_flows", "get_margin_short",
+    "get_foreign_holding", "get_securities_lending",
 }
 
 # Vendors with nothing on Taiwan listings, dropped from the chain for a Taiwan
@@ -165,6 +184,26 @@ VENDOR_METHODS = {
         "alpha_vantage": get_alpha_vantage_income_statement,
         "sec_edgar": get_sec_edgar_income_statement,
         "yfinance": get_yfinance_income_statement,
+    },
+    # Taiwan only: FinMind is the one vendor with these datasets.
+    "get_peer_valuation": {
+        "finmind": get_finmind_peer_valuation,
+    },
+    # chip_data
+    "get_chip_summary": {
+        "finmind": get_finmind_chip_summary,
+    },
+    "get_institutional_flows": {
+        "finmind": get_finmind_institutional_flows,
+    },
+    "get_margin_short": {
+        "finmind": get_finmind_margin_short,
+    },
+    "get_foreign_holding": {
+        "finmind": get_finmind_foreign_holding,
+    },
+    "get_securities_lending": {
+        "finmind": get_finmind_securities_lending,
     },
     # news_data
     "get_news": {

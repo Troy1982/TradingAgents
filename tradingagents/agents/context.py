@@ -212,6 +212,16 @@ def report_or_absent(text: str, source: str) -> str:
     return f"(No {source} report in this run: it is not available, not an empty finding.)"
 
 
+def chip_report_line(state: Mapping[str, Any]) -> str:
+    """The chip analyst's report as a labelled prompt line, or nothing without one.
+
+    Unlike the four core reports it is not marked absent: it exists for Taiwan
+    listings only, so its absence from a US run is not a gap worth a line.
+    """
+    text = (state.get("chip_report") or "").strip()
+    return f"Chip report (institutional flows, margin, foreign holding, lending): {text}\n" if text else ""
+
+
 def get_portfolio_context_from_state(state: Mapping[str, Any]) -> str:
     """Return the caller's portfolio block, or a notice that none was given.
 

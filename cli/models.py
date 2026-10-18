@@ -8,6 +8,8 @@ class AnalystType(StrEnum):
     SOCIAL = "social"
     NEWS = "news"
     FUNDAMENTALS = "fundamentals"
+    # Taiwan-listed stocks only: offered when the ticker is one.
+    CHIPS = "chips"
 
 
 class AssetType(StrEnum):

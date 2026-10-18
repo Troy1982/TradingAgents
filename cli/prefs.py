@@ -28,7 +28,7 @@ from tradingagents.llm_clients.model_catalog import get_model_options
 _PREFS_PATH = Path(os.path.expanduser("~")) / ".tradingagents" / "cli_prefs.json"
 
 REMEMBERED = (
-    "output_language", "analysts", "research_depth", "llm_provider",
+    "output_language", "analysts", "chips_enabled", "research_depth", "llm_provider",
     "quick_think_llm", "deep_think_llm", "backend_url",
 )
 
@@ -59,9 +59,11 @@ def save_last_run(selections: dict) -> None:
         return
 
 
-def sanitize(prefs: dict, asset_type) -> dict:
+def sanitize(prefs: dict, asset_type, ticker: str | None = None) -> dict:
     """Keep only the remembered answers that are still choosable now."""
     kept: dict = {}
+    if isinstance(prefs.get("chips_enabled"), bool):
+        kept["chips_enabled"] = prefs["chips_enabled"]
     if isinstance(prefs.get("output_language"), str):
         kept["output_language"] = prefs["output_language"]
     if prefs.get("research_depth") in (1, 3, 5):
@@ -69,7 +71,7 @@ def sanitize(prefs: dict, asset_type) -> dict:
 
     known = {a.value for a in AnalystType}
     analysts = [a for a in prefs.get("analysts") or [] if a in known]
-    allowed = filter_analysts_for_asset_type([AnalystType(a) for a in analysts], AssetType(asset_type))
+    allowed = filter_analysts_for_asset_type([AnalystType(a) for a in analysts], AssetType(asset_type), ticker)
     if allowed:
         kept["analysts"] = [a.value for a in allowed]
 

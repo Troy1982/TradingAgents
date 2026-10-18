@@ -198,7 +198,19 @@ def build_default_config() -> dict:
             "news_data": "finmind,yfinance",             # Options: finmind, alpha_vantage, yfinance
             "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
             "prediction_markets": "polymarket",  # Options: polymarket (keyless)
+            # Taiwan chip data (institutional flows, margin, foreign holding,
+            # securities lending) for the chip analyst; FinMind only.
+            "chip_data": "finmind",              # Options: finmind
         },
+        # The chip analyst's look-back and its high-volume down day rule: volume at
+        # least volume_spike_ratio times the prior 20-day average, close down at
+        # least down_day_pct percent.
+        "chip_analysis": {"lookback_days": 20, "volume_spike_ratio": 1.5, "down_day_pct": 3.0},
+        # Taiwan peer groups for the peer valuation table, by stock code:
+        # {"2383": ["6274", "6213"]}. Peers are read from tradingagents/data/tw_peers.json,
+        # then ~/.tradingagents/tw_peers.json, then this key; each replaces the
+        # lists of the codes it names.
+        "peer_groups": {},
         # Tool-level configuration (takes precedence over category-level)
         "tool_vendors": {
             # Example: "get_stock_data": "alpha_vantage",  # Override category default

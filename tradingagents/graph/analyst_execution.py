@@ -1,7 +1,12 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from tradingagents.agents.analysts import fundamentals_analyst, market_analyst, news_analyst
+from tradingagents.agents.analysts import (
+    chip_analyst,
+    fundamentals_analyst,
+    market_analyst,
+    news_analyst,
+)
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,13 @@ ANALYST_NODE_SPECS: dict[str, AnalystNodeSpec] = {
         agent_node="Fundamentals Analyst",
         report_key="fundamentals_report",
         tools=fundamentals_analyst.TOOLS,
+    ),
+    "chips": AnalystNodeSpec(
+        # Taiwan listings only: for any other symbol it files a one-line note.
+        key="chips",
+        agent_node="Chip Analyst",
+        report_key="chip_report",
+        tools=chip_analyst.TOOLS,
     ),
 }
 

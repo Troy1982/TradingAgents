@@ -12,6 +12,7 @@ from cli import updates
 from cli.display import (
     console,
 )
+from cli.models import AnalystType, AssetType
 from cli.prefs import load_last_run, sanitize, save_last_run
 from cli.prompts import (
     TICKER_INPUT_EXAMPLES,
@@ -38,6 +39,7 @@ from cli.prompts import (
     select_research_depth,
     select_shallow_thinking_agent,
 )
+from tradingagents.dataflows.symbols import is_taiwan_symbol
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients.factory import REASONING_EFFORT_PROVIDERS
 from tradingagents.llm_clients.openai_client import check_endpoint
@@ -216,16 +218,22 @@ def _prompt_selections(prefs, flags):
         output_language = ask_output_language(prefs.get("output_language"))
 
     # Step 4: Select analysts
-    prefs = sanitize(prefs, asset_type.value)
+    prefs = sanitize(prefs, asset_type.value, selected_ticker)
+    taiwan = asset_type == AssetType.STOCK and is_taiwan_symbol(selected_ticker)
     if flags.get("analysts") is not None:
-        selected_analysts = _from_flag(parse_analysts, flags["analysts"], asset_type)
+        selected_analysts = _from_flag(parse_analysts, flags["analysts"], asset_type, selected_ticker)
     else:
         console.print(
             create_question_box(
                 "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
             )
         )
-        selected_analysts = select_analysts(asset_type, prefs.get("analysts"))
+        default_analysts = prefs.get("analysts")
+        # A Taiwan ticker gets the chip analyst checked unless the user turned
+        # it off on an earlier Taiwan run; a US run's answer says nothing about it.
+        if taiwan and default_analysts and prefs.get("chips_enabled", True):
+            default_analysts = [*default_analysts, AnalystType.CHIPS.value]
+        selected_analysts = select_analysts(asset_type, default_analysts, ticker=selected_ticker)
     console.print(
         f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
     )
@@ -360,6 +368,8 @@ def _prompt_selections(prefs, flags):
         "asset_type": asset_type.value,
         "analysis_date": analysis_date,
         "analysts": selected_analysts,
+        # Remembered only from a run that offered the chip analyst.
+        "chips_enabled": (AnalystType.CHIPS in selected_analysts) if taiwan else None,
         "research_depth": selected_research_depth,
         "llm_provider": selected_llm_provider.lower(),
         "backend_url": backend_url,
