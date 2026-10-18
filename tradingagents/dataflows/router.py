@@ -3,9 +3,11 @@ import logging
 from tradingagents.dataflows.config import get_config
 from tradingagents.dataflows.errors import (
     NoMarketDataError,
+    UnsupportedSymbolError,
     VendorNotConfiguredError,
     VendorUnavailableError,
 )
+from tradingagents.dataflows.symbols import is_taiwan_symbol
 from tradingagents.dataflows.vendors.alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
@@ -16,6 +18,21 @@ from tradingagents.dataflows.vendors.alpha_vantage import (
     get_insider_transactions as get_alpha_vantage_insider_transactions,
     get_news as get_alpha_vantage_news,
     get_stock as get_alpha_vantage_stock,
+)
+from tradingagents.dataflows.vendors.finmind import (
+    get_balance_sheet as get_finmind_balance_sheet,
+    get_cashflow as get_finmind_cashflow,
+    get_chip_summary as get_finmind_chip_summary,
+    get_foreign_holding as get_finmind_foreign_holding,
+    get_fundamentals as get_finmind_fundamentals,
+    get_income_statement as get_finmind_income_statement,
+    get_indicators as get_finmind_indicators,
+    get_institutional_flows as get_finmind_institutional_flows,
+    get_margin_short as get_finmind_margin_short,
+    get_news as get_finmind_news,
+    get_peer_valuation as get_finmind_peer_valuation,
+    get_securities_lending as get_finmind_securities_lending,
+    get_stock_data as get_finmind_stock_data,
 )
 from tradingagents.dataflows.vendors.fred import get_macro_data as get_fred_macro_data
 from tradingagents.dataflows.vendors.polymarket import (
@@ -61,7 +78,18 @@ TOOLS_CATEGORIES = {
             "get_fundamentals",
             "get_balance_sheet",
             "get_cashflow",
-            "get_income_statement"
+            "get_income_statement",
+            "get_peer_valuation",
+        ]
+    },
+    "chip_data": {
+        "description": "Taiwan chip data: institutional flows, margin, foreign holding, lending",
+        "tools": [
+            "get_chip_summary",
+            "get_institutional_flows",
+            "get_margin_short",
+            "get_foreign_holding",
+            "get_securities_lending",
         ]
     },
     "news_data": {
@@ -93,40 +121,93 @@ TOOLS_CATEGORIES = {
 # categories (prices, fundamentals, news) still raise so a broken primary is loud.
 OPTIONAL_CATEGORIES = {"macro_data", "prediction_markets"}
 
+# Methods whose first argument is the instrument's symbol, so the vendor chain
+# can be fitted to the instrument's market.
+SYMBOL_METHODS = {
+    "get_stock_data", "get_indicators", "get_fundamentals", "get_balance_sheet",
+    "get_cashflow", "get_income_statement", "get_news", "get_insider_transactions",
+    "get_peer_valuation", "get_chip_summary", "get_institutional_flows", "get_margin_short",
+    "get_foreign_holding", "get_securities_lending",
+}
+
+# Vendors with nothing on Taiwan listings, dropped from the chain for a Taiwan
+# symbol: SEC EDGAR holds US filers only; Polymarket lists no market on a Taiwan
+# company, so a keyword search returns unrelated contracts.
+US_ONLY_VENDORS = {"sec_edgar", "polymarket"}
+
+
+def vendor_chain_for(vendors: str, symbol: str | None) -> list[str]:
+    """The configured vendor chain as it is tried for ``symbol``.
+
+    For a Taiwan symbol the US-only vendors are left out. The report header
+    shows this chain, so it names the vendors a run could actually use.
+    """
+    chain = [v.strip() for v in str(vendors).split(",") if v.strip()]
+    if symbol and is_taiwan_symbol(str(symbol)):
+        chain = [v for v in chain if v not in US_ONLY_VENDORS]
+    return chain
+
 # Mapping of methods to their vendor-specific implementations
 VENDOR_METHODS = {
     # core_stock_apis
     "get_stock_data": {
+        "finmind": get_finmind_stock_data,
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
     },
     # technical_indicators
     "get_indicators": {
+        "finmind": get_finmind_indicators,
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
     },
     # fundamental_data
     "get_fundamentals": {
+        "finmind": get_finmind_fundamentals,
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
     },
     "get_balance_sheet": {
+        "finmind": get_finmind_balance_sheet,
         "alpha_vantage": get_alpha_vantage_balance_sheet,
         "sec_edgar": get_sec_edgar_balance_sheet,
         "yfinance": get_yfinance_balance_sheet,
     },
     "get_cashflow": {
+        "finmind": get_finmind_cashflow,
         "alpha_vantage": get_alpha_vantage_cashflow,
         "sec_edgar": get_sec_edgar_cashflow,
         "yfinance": get_yfinance_cashflow,
     },
     "get_income_statement": {
+        "finmind": get_finmind_income_statement,
         "alpha_vantage": get_alpha_vantage_income_statement,
         "sec_edgar": get_sec_edgar_income_statement,
         "yfinance": get_yfinance_income_statement,
     },
+    # Taiwan only: FinMind is the one vendor with these datasets.
+    "get_peer_valuation": {
+        "finmind": get_finmind_peer_valuation,
+    },
+    # chip_data
+    "get_chip_summary": {
+        "finmind": get_finmind_chip_summary,
+    },
+    "get_institutional_flows": {
+        "finmind": get_finmind_institutional_flows,
+    },
+    "get_margin_short": {
+        "finmind": get_finmind_margin_short,
+    },
+    "get_foreign_holding": {
+        "finmind": get_finmind_foreign_holding,
+    },
+    "get_securities_lending": {
+        "finmind": get_finmind_securities_lending,
+    },
     # news_data
     "get_news": {
+        "finmind": get_finmind_news,
         "alpha_vantage": get_alpha_vantage_news,
         "yfinance": get_news_yfinance,
     },
@@ -224,6 +305,18 @@ def route_to_vendor(method: str, *args, **kwargs):
     else:
         vendor_chain = all_available_vendors
 
+    symbol = args[0] if method in SYMBOL_METHODS and args else None
+    if symbol is not None and is_taiwan_symbol(str(symbol)):
+        fitted = vendor_chain_for(",".join(vendor_chain), symbol)
+        if fitted != vendor_chain:
+            logger.debug("Skipping US-only vendor(s) %s for Taiwan symbol %s",
+                         [v for v in vendor_chain if v not in fitted], symbol)
+            vendor_chain = fitted
+        if not vendor_chain:
+            return no_data_available(NoMarketDataError(
+                str(symbol), str(symbol), f"no configured vendor for {method} covers Taiwan-listed symbols"))
+    subject = f"{method}({symbol})" if symbol is not None else method
+
     last_no_data: NoMarketDataError | None = None
     last_unavailable: VendorUnavailableError | None = None
     failed: Exception | None = None     # a vendor that raised something untyped
@@ -233,26 +326,34 @@ def route_to_vendor(method: str, *args, **kwargs):
         impl_func = vendor_impl[0] if isinstance(vendor_impl, list) else vendor_impl
 
         try:
-            return impl_func(*args, **kwargs)
+            result = impl_func(*args, **kwargs)
+            logger.info("%s served by %s", subject, vendor)
+            return result
         except VendorUnavailableError as e:
-            logger.warning("Vendor %r unavailable for %s: %s; trying next vendor.", vendor, method, e)
+            logger.warning("Vendor %r unavailable for %s: %s; trying next vendor.", vendor, subject, e)
             # Kept so an all-unavailable chain can say the vendor was the
             # problem, rather than reporting nothing about the symbol.
             last_unavailable = e
             continue
         except VendorNotConfiguredError as e:
-            logger.warning("Vendor %r not configured for %s; trying next vendor.", vendor, method)
+            logger.warning("Vendor %r not configured for %s (%s); trying next vendor.", vendor, subject, e)
             if first_error is None:
                 first_error = e  # Surface it if no other vendor can serve the call.
             continue
+        except UnsupportedSymbolError as e:
+            # Expected hand-over (FinMind asked for a US symbol): not a failure.
+            logger.debug("Vendor %r does not cover %s: %s", vendor, subject, e)
+            last_no_data = e
+            continue
         except NoMarketDataError as e:
+            logger.info("Vendor %r has no data for %s: %s; trying next vendor.", vendor, subject, e)
             last_no_data = e  # No data here; another configured vendor may have it
             continue
         except Exception as e:
             # Don't let one vendor's failure crash the call when another can
             # serve it, but never swallow silently: a broken primary must be
             # visible in the logs (#989), not hidden behind a fallback's verdict.
-            logger.warning("Vendor %r failed for %s: %s", vendor, method, e)
+            logger.warning("Vendor %r failed for %s: %s", vendor, subject, e)
             if first_error is None:
                 first_error = e
             failed = e

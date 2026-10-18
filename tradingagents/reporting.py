@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 
 from tradingagents.agents.rating import run_rating
+from tradingagents.dataflows.router import vendor_chain_for
+from tradingagents.dataflows.symbols import NOT_FOR_TAIWAN
 
 
 def analyst_names(keys) -> list[str]:
@@ -40,7 +42,11 @@ def _header(ticker: str, final_state: dict, settings: dict | None) -> str:
                      f"risk debate rounds {s('max_risk_discuss_rounds', '?')}")
         vendors = {**(s("data_vendors") or {}), **(s("tool_vendors") or {})}
         if vendors:
-            lines.append("- Data vendors: " + ", ".join(f"{k} {v}" for k, v in vendors.items()))
+            # The chain as tried for this ticker, not as configured: a Taiwan
+            # symbol never reaches the US-only vendors.
+            chains = {k: ",".join(vendor_chain_for(v, ticker)) or f"none ({NOT_FOR_TAIWAN})"
+                      for k, v in vendors.items()}
+            lines.append("- Data vendors: " + ", ".join(f"{k} {v}" for k, v in chains.items()))
     if final_state.get("memory_note"):
         lines.append(f"- Memory log: {final_state['memory_note']}")
     return "\n".join(lines) + "\n\n"
@@ -53,6 +59,7 @@ _SECTIONS = (
         ("Sentiment Analyst", "sentiment.md", ("sentiment_report",)),
         ("News Analyst", "news.md", ("news_report",)),
         ("Fundamentals Analyst", "fundamentals.md", ("fundamentals_report",)),
+        ("Chip Analyst", "chips.md", ("chip_report",)),
     )),
     ("II. Research Team Decision", "2_research", (
         ("Bull Researcher", "bull.md", ("investment_debate_state", "bull_history")),

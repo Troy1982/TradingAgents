@@ -289,3 +289,121 @@ def get_prediction_markets(
         str: A formatted markdown report of matching prediction markets
     """
     return route_to_vendor("get_prediction_markets", topic, limit, trade_date or None)
+
+
+@tool
+def get_peer_valuation(
+    ticker: Annotated[str, InjectedState("company_of_interest")],
+    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
+    trade_date: Annotated[str, InjectedState("trade_date")] = "",
+) -> str:
+    """
+    Compare the Taiwan-listed instrument's valuation with its configured peers:
+    TWSE/TPEx-published PER, PBR and dividend yield for each, with the peer median
+    and the instrument's premium or discount to it. Taiwan listings only.
+    Args:
+        curr_date (str): Current date you are trading at, yyyy-mm-dd
+    Returns:
+        str: A peer valuation table
+    """
+    return route_to_vendor("get_peer_valuation", ticker, as_of(curr_date, trade_date))
+
+
+@tool
+def get_chip_summary(
+    symbol: Annotated[str, InjectedState("company_of_interest")],
+    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
+    look_back_days: Annotated[int, "trading days to show, at most 60"] = 20,
+    trade_date: Annotated[str, InjectedState("trade_date")] = "",
+) -> str:
+    """
+    Daily price, volume, institutional net buys by group, margin and short
+    changes and securities lending, joined by day for the Taiwan-listed
+    instrument. High-volume down days are flagged, each with which institutional
+    group sold most and whether margin balances rose on the drop. Call this first.
+    Args:
+        curr_date (str): Current date you are trading at, yyyy-mm-dd
+        look_back_days (int): Trading days to show, default 20, at most 60
+    Returns:
+        str: The joined daily table and the flagged days, in lots (張)
+    """
+    return route_to_vendor("get_chip_summary", symbol, as_of(curr_date, trade_date), look_back_days)
+
+
+@tool
+def get_institutional_flows(
+    symbol: Annotated[str, InjectedState("company_of_interest")],
+    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
+    look_back_days: Annotated[int, "trading days to show, at most 60"] = 20,
+    trade_date: Annotated[str, InjectedState("trade_date")] = "",
+) -> str:
+    """
+    Daily net buy/sell of the three institutional investor groups (三大法人:
+    foreign investors, investment trusts, dealers) for the Taiwan-listed
+    instrument, with 5-day and window totals and the foreign / trust streaks.
+    Args:
+        curr_date (str): Current date you are trading at, yyyy-mm-dd
+        look_back_days (int): Trading days to show, default 20, at most 60
+    Returns:
+        str: Net buys by group in lots (張)
+    """
+    return route_to_vendor("get_institutional_flows", symbol, as_of(curr_date, trade_date), look_back_days)
+
+
+@tool
+def get_margin_short(
+    symbol: Annotated[str, InjectedState("company_of_interest")],
+    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
+    look_back_days: Annotated[int, "trading days to show, at most 60"] = 20,
+    trade_date: Annotated[str, InjectedState("trade_date")] = "",
+) -> str:
+    """
+    Margin purchase and short sale balances (融資融券) for the Taiwan-listed
+    instrument: daily balances and changes, the short/margin ratio (券資比),
+    offsets and margin utilization.
+    Args:
+        curr_date (str): Current date you are trading at, yyyy-mm-dd
+        look_back_days (int): Trading days to show, default 20, at most 60
+    Returns:
+        str: Balances and changes in lots (張)
+    """
+    return route_to_vendor("get_margin_short", symbol, as_of(curr_date, trade_date), look_back_days)
+
+
+@tool
+def get_foreign_holding(
+    symbol: Annotated[str, InjectedState("company_of_interest")],
+    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
+    look_back_days: Annotated[int, "trading days to show, at most 60"] = 60,
+    trade_date: Annotated[str, InjectedState("trade_date")] = "",
+) -> str:
+    """
+    Foreign investors' shareholding ratio (外資持股比例) of the Taiwan-listed
+    instrument over the window, with its 5-day, 20-day and window changes.
+    Args:
+        curr_date (str): Current date you are trading at, yyyy-mm-dd
+        look_back_days (int): Trading days to show, default 60, at most 60
+    Returns:
+        str: The ratio by day, in percent of issued shares
+    """
+    return route_to_vendor("get_foreign_holding", symbol, as_of(curr_date, trade_date), look_back_days)
+
+
+@tool
+def get_securities_lending(
+    symbol: Annotated[str, InjectedState("company_of_interest")],
+    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
+    look_back_days: Annotated[int, "trading days to show, at most 60"] = 20,
+    trade_date: Annotated[str, InjectedState("trade_date")] = "",
+) -> str:
+    """
+    Securities lending trades (借券成交) of the Taiwan-listed instrument by day:
+    lots lent, number of trades, volume-weighted fee rate, and totals by
+    transaction type. Rising lending can precede short selling.
+    Args:
+        curr_date (str): Current date you are trading at, yyyy-mm-dd
+        look_back_days (int): Trading days to show, default 20, at most 60
+    Returns:
+        str: Lending trades in lots (張)
+    """
+    return route_to_vendor("get_securities_lending", symbol, as_of(curr_date, trade_date), look_back_days)

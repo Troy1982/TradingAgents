@@ -16,8 +16,11 @@ import pandas as pd
 from stockstats import wrap
 
 from tradingagents.dataflows.errors import NoMarketDataError
+
+# Routed through the configured price vendor (FinMind for a Taiwan symbol), so the
+# snapshot reads the same prices as get_stock_data and get_indicators.
+from tradingagents.dataflows.ohlcv import PRICE_BASIS, load_ohlcv
 from tradingagents.dataflows.symbols import normalize_symbol
-from tradingagents.dataflows.vendors.yahoo.ohlcv import load_ohlcv
 
 # A fixed, common indicator set so the snapshot is the same shape every run.
 DEFAULT_SNAPSHOT_INDICATORS: tuple[str, ...] = (
@@ -41,9 +44,12 @@ def _verified_rows(symbol: str, as_of_date: str) -> pd.DataFrame:
         raise NoMarketDataError(symbol, normalize_symbol(symbol), "no price rows")
 
     df = data.copy()
+    df.attrs["vendor"] = data.attrs.get("vendor")
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df.dropna(subset=["Date"])
+    vendor = df.attrs.get("vendor")
     df = df[df["Date"] <= pd.to_datetime(as_of_date)].sort_values("Date")
+    df.attrs["vendor"] = vendor
     if df.empty:
         raise NoMarketDataError(symbol, normalize_symbol(symbol), f"no price rows on or before {as_of_date}")
     return df
@@ -95,6 +101,7 @@ def build_verified_market_snapshot(
         "",
         f"- Requested analysis date: {as_of_date}",
         f"- Latest trading row used: {latest_date}",
+        *([f"- Price source: {PRICE_BASIS[df.attrs['vendor']]}"] if df.attrs.get("vendor") in PRICE_BASIS else []),
         "- Rows after the requested analysis date are excluded before verification.",
         "",
         "### Latest verified OHLCV row",

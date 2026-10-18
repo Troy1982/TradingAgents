@@ -7,6 +7,7 @@ these (or a thin vendor-named subclass) and needs no new ``except`` clause.
 
     VendorError
     ├── NoMarketDataError          no usable rows (empty result OR stale data)
+    │   └── UnsupportedSymbolError the vendor does not cover this market at all
     ├── VendorUnavailableError     throttled or failed request -> skip to next vendor
     └── VendorNotConfiguredError   missing API key/config -> vendor unavailable
 
@@ -41,6 +42,14 @@ class NoMarketDataError(VendorError):
         if detail:
             msg += f": {detail}"
         super().__init__(msg)
+
+
+class UnsupportedSymbolError(NoMarketDataError):
+    """The vendor serves another market (FinMind asked for AAPL).
+
+    Routed exactly like NoMarketDataError; a separate type only so the expected
+    hand-over to the next vendor is not logged as a failure.
+    """
 
 
 class VendorUnavailableError(VendorError):

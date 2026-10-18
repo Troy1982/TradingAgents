@@ -11,6 +11,17 @@ from tradingagents.dataflows.vendors.yahoo.fundamentals import get_company_profi
 logger = logging.getLogger(__name__)
 
 
+# Numbers in a headline are a reporter's framing, often intraday and unverifiable;
+# the structured tools are the record (#2383 report: "急拉至 5,850 元、成交 85 張").
+NEWS_NUMBERS_RULE = (
+    "Prices, percentage moves, trading volume, revenue, earnings and every other figure "
+    "must come from the structured data the tools return. Numbers that appear in news "
+    "headlines or article text are narrative context only: do not state them as fact, "
+    "do not base a conclusion on them, and if you mention one, attribute it to the "
+    "headline (e.g. 'a headline claims ...') rather than presenting it as verified."
+)
+
+
 def get_language_instruction() -> str:
     """Return a prompt instruction for the configured output language.
 
@@ -199,6 +210,16 @@ def report_or_absent(text: str, source: str) -> str:
     if text:
         return text
     return f"(No {source} report in this run: it is not available, not an empty finding.)"
+
+
+def chip_report_line(state: Mapping[str, Any]) -> str:
+    """The chip analyst's report as a labelled prompt line, or nothing without one.
+
+    Unlike the four core reports it is not marked absent: it exists for Taiwan
+    listings only, so its absence from a US run is not a gap worth a line.
+    """
+    text = (state.get("chip_report") or "").strip()
+    return f"Chip report (institutional flows, margin, foreign holding, lending): {text}\n" if text else ""
 
 
 def get_portfolio_context_from_state(state: Mapping[str, Any]) -> str:

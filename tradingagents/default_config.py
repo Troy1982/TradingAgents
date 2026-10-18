@@ -155,16 +155,62 @@ def build_default_config() -> dict:
         # The configured value is the exact vendor chain — requests are NOT silently
         # routed to vendors you didn't choose. For ordered fallback, list several,
         # e.g. "yfinance,alpha_vantage". "default" uses all available vendors.
+        #
+        # Taiwan stocks (TWSE/TPEx). With the defaults below nothing needs
+        # switching: set FINMIND_TOKEN (in .env) and a Taiwan symbol (2330,
+        # 2330.TW, 8069.TWO) is served by FinMind while every other symbol skips
+        # it and goes to the next vendor. Without the token, Taiwan symbols go
+        # to Yahoo (2330.TW) too. Other set-ups, passed to set_config() or
+        # TradingAgentsGraph(config=...):
+        #
+        #   Turn FinMind off, Yahoo for everything:
+        #     "data_vendors": {"core_stock_apis": "yfinance",
+        #                      "technical_indicators": "yfinance",
+        #                      "fundamental_data": "sec_edgar,yfinance",
+        #                      "news_data": "yfinance"}
+        #
+        #   FinMind for one tool only, e.g. Taiwan news, Yahoo for the rest:
+        #     "data_vendors": {"news_data": "yfinance", ...as above...},
+        #     "tool_vendors": {"get_news": "finmind,yfinance"}
+        #
+        #   FinMind with no Yahoo fallback (Taiwan-only runs; a US symbol then
+        #   reports NO_DATA_AVAILABLE instead of being priced):
+        #     "data_vendors": {"core_stock_apis": "finmind",
+        #                      "technical_indicators": "finmind",
+        #                      "fundamental_data": "finmind",
+        #                      "news_data": "finmind"}
+        #
+        #   Taiwan-flavoured macro headlines and reports for a Taiwan run:
+        #     "global_news_queries": ["台股 加權指數 外資", "Taiwan central bank interest rate",
+        #                             "semiconductor supply chain TSMC"],
+        #     "output_language": "Traditional Chinese"   # or TRADINGAGENTS_OUTPUT_LANGUAGE
+        #
+        # The alpha benchmark already follows the suffix: .TW / .TWO -> ^TWII.
         "data_vendors": {
-            "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
-            "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
+            # FinMind serves Taiwan (TWSE/TPEx) symbols such as 2330, 2330.TW or
+            # 8069.TWO and needs FINMIND_TOKEN; any other symbol, or a missing
+            # token, goes straight to the next vendor in the chain.
+            "core_stock_apis": "finmind,yfinance",       # Options: finmind, alpha_vantage, yfinance
+            "technical_indicators": "finmind,yfinance",  # Options: finmind, alpha_vantage, yfinance
             # Statements come from SEC EDGAR as filed (US filers), then Yahoo; the
-        # overview and insider tools, which SEC EDGAR does not serve, from Yahoo.
-        "fundamental_data": "sec_edgar,yfinance",  # Options: sec_edgar, alpha_vantage, yfinance
-            "news_data": "yfinance",             # Options: alpha_vantage, yfinance
+            # overview and insider tools, which SEC EDGAR does not serve, from Yahoo.
+            "fundamental_data": "finmind,sec_edgar,yfinance",  # Options: finmind, sec_edgar, alpha_vantage, yfinance
+            "news_data": "finmind,yfinance",             # Options: finmind, alpha_vantage, yfinance
             "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
             "prediction_markets": "polymarket",  # Options: polymarket (keyless)
+            # Taiwan chip data (institutional flows, margin, foreign holding,
+            # securities lending) for the chip analyst; FinMind only.
+            "chip_data": "finmind",              # Options: finmind
         },
+        # The chip analyst's look-back and its high-volume down day rule: volume at
+        # least volume_spike_ratio times the prior 20-day average, close down at
+        # least down_day_pct percent.
+        "chip_analysis": {"lookback_days": 20, "volume_spike_ratio": 1.5, "down_day_pct": 3.0},
+        # Taiwan peer groups for the peer valuation table, by stock code:
+        # {"2383": ["6274", "6213"]}. Peers are read from tradingagents/data/tw_peers.json,
+        # then ~/.tradingagents/tw_peers.json, then this key; each replaces the
+        # lists of the codes it names.
+        "peer_groups": {},
         # Tool-level configuration (takes precedence over category-level)
         "tool_vendors": {
             # Example: "get_stock_data": "alpha_vantage",  # Override category default

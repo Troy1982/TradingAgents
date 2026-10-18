@@ -144,6 +144,32 @@ def normalize_symbol(raw: str) -> str:
     return canonical
 
 
+# A TWSE/TPEx code: four digits, or an ETF/ETN code of up to six characters
+# (0050, 00878, 00632R), optionally with Yahoo's .TW / .TWO suffix.
+_TW_SYMBOL = re.compile(r"^(\d{4}[0-9A-Z]{0,2})(?:\.(TW|TWO))?$")
+
+
+def taiwan_stock_id(raw: str) -> str | None:
+    """The Taiwan stock code in ``raw`` (``2330``, ``2330.TW``, ``8069.TWO``), else None.
+
+    Purely syntactic: a bare six-digit code is read as Taiwanese too, which is
+    only a guess for mainland codes typed without their suffix.
+    """
+    if not isinstance(raw, str):
+        return None
+    match = _TW_SYMBOL.match(raw.strip().upper())
+    return match.group(1) if match else None
+
+
+# Written into reports wherever a source is skipped for a Taiwan symbol.
+NOT_FOR_TAIWAN = "此來源不適用台股"
+
+
+def is_taiwan_symbol(raw: str) -> bool:
+    """Whether ``raw`` names a TWSE/TPEx listing, for choosing market-specific sources."""
+    return taiwan_stock_id(raw) is not None
+
+
 # Tickers can contain letters, digits, dot, dash, underscore, caret
 # (index symbols like ^GSPC), equals (futures like GC=F), and plus
 # (forex/CFD symbols like XAUUSD+). None of these enable directory

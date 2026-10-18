@@ -10,6 +10,7 @@ from tradingagents.agents import (
     create_aggressive_debator,
     create_bear_researcher,
     create_bull_researcher,
+    create_chip_analyst,
     create_conservative_debator,
     create_fundamentals_analyst,
     create_market_analyst,
@@ -107,7 +108,7 @@ class GraphSetup:
         self.max_tool_rounds = max_tool_rounds
 
     def setup_graph(
-        self, selected_analysts=("market", "social", "news", "fundamentals"), memory_node=None
+        self, selected_analysts=("market", "social", "news", "fundamentals", "chips"), memory_node=None
     ):
         """Set up and compile the agent workflow graph.
 
@@ -117,6 +118,7 @@ class GraphSetup:
                 - "social": Sentiment analyst
                 - "news": News analyst
                 - "fundamentals": Fundamentals analyst
+                - "chips": Chip analyst (Taiwan listings only; a note for any other)
             memory_node: Node that settles past decisions and returns the run's
                 ``past_context``. It runs alongside the analysts.
         """
@@ -127,6 +129,7 @@ class GraphSetup:
             "social": lambda: create_sentiment_analyst(self.quick_thinking_llm),
             "news": lambda: create_news_analyst(self.quick_thinking_llm),
             "fundamentals": lambda: create_fundamentals_analyst(self.quick_thinking_llm),
+            "chips": lambda: create_chip_analyst(self.quick_thinking_llm),
         }
 
         bull_researcher_node = create_bull_researcher(self.quick_thinking_llm)

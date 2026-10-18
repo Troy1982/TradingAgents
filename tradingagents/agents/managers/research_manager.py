@@ -9,6 +9,30 @@ from tradingagents.agents.structured import (
     bind_structured,
     invoke_structured_or_freetext,
 )
+from tradingagents.agents.tools import get_peer_valuation
+from tradingagents.dataflows.symbols import is_taiwan_symbol
+
+
+def peer_valuation_block(state) -> str:
+    """The peer valuation table for a Taiwan listing, as a prompt section; nothing otherwise.
+
+    Fetched here rather than offered as a tool: the manager weighs the debate and
+    calls no tools. It is the same request the fundamentals analyst makes, so it
+    is served from the FinMind cache.
+    """
+    ticker = str(state.get("company_of_interest", ""))
+    if not is_taiwan_symbol(ticker):
+        return ""
+    trade_date = state.get("trade_date", "")
+    try:
+        table = get_peer_valuation.func(ticker, trade_date, trade_date)
+    except Exception as exc:  # noqa: BLE001 - context for the manager; never end the run on it
+        table = f"DATA_UNAVAILABLE: peer valuation could not be retrieved ({exc})."
+    return (
+        "\n**Peer Valuation (TaiwanStockPER)** - reference data, not a debate argument; use it to judge"
+        " whether the valuation case either side made holds against listed peers:\n"
+        f"{table}\n\n---\n"
+    )
 
 
 def create_research_manager(llm):
@@ -19,6 +43,7 @@ def create_research_manager(llm):
         history = state["investment_debate_state"].get("history", "")
 
         investment_debate_state = state["investment_debate_state"]
+        peers = peer_valuation_block(state)
 
         prompt = f"""As the Research Manager and debate facilitator, your role is to critically evaluate this round of debate and deliver a clear, actionable investment plan for the trader.
 
@@ -36,7 +61,7 @@ def create_research_manager(llm):
 The debate always contains conflicting arguments; deciding which side is stronger is the job, so conflict alone is not a reason to Hold. Commit to the side with the stronger case, sized by how decisively it wins. Choose Hold only when the evidence is still balanced after that weighing, or too thin to support a call; do not manufacture a direction to appear decisive. Weigh the bull and bear cases on their merits, independent of which side spoke first or last.
 
 ---
-
+{peers}
 **Debate History:**
 {history}
 
