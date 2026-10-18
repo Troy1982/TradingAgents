@@ -55,6 +55,15 @@ class TestLanguageInstruction:
         out = get_language_instruction()
         assert "**Rating**:" in out and "FINAL TRANSACTION PROPOSAL" in out
 
+    def test_the_analyst_variant_names_no_labelled_lines(self):
+        # Analysts do not rate the trade; naming the rating lines made every
+        # analyst report end with a Rating and a FINAL TRANSACTION PROPOSAL.
+        from tradingagents.dataflows.config import set_config
+        set_config({"output_language": "中文"})
+        out = get_language_instruction(labelled_lines=False)
+        assert "中文" in out and "entire response" in out
+        assert "Rating" not in out and "FINAL TRANSACTION PROPOSAL" not in out
+
 
 @pytest.mark.unit
 @pytest.mark.parametrize("rel", REPORT_AGENTS)
@@ -62,7 +71,7 @@ def test_report_agent_applies_language_instruction(rel):
     path = _AGENTS_DIR / rel
     assert path.exists(), f"missing agent module: {rel}"
     src = path.read_text(encoding="utf-8")
-    assert "get_language_instruction()" in src, (
+    assert "get_language_instruction(" in src, (
         f"{rel} does not apply get_language_instruction(); its output would "
         f"ignore the configured output_language (#740/#801)."
     )

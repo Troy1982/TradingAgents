@@ -45,6 +45,63 @@ def test_an_analyst_is_not_asked_for_a_trade_call_nothing_reads(name):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("name", ["market_analyst", "news_analyst", "fundamentals_analyst"])
+def test_a_non_english_analyst_prompt_names_no_rating_lines(name):
+    """The language instruction named the "**Rating**:" and FINAL TRANSACTION
+    PROPOSAL lines for every agent, so every analyst report ended with both."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from langchain_core.runnables import RunnableLambda
+
+    from tradingagents.dataflows.config import set_config
+
+    set_config({"output_language": "Traditional Chinese"})
+    mod = importlib.import_module(f"tradingagents.agents.analysts.{name}")
+    seen = []
+
+    def _reply(prompt_value):
+        seen.append(prompt_value.to_string())
+        return AIMessage("report")
+
+    class _LLM:
+        def bind_tools(self, tools):
+            return RunnableLambda(_reply)
+
+    factory = getattr(mod, f"create_{name}")
+    factory(_LLM())({
+        "company_of_interest": "2383.TW", "trade_date": "2026-10-16", "asset_type": "stock",
+        "instrument_context": "", "messages": [HumanMessage("2383.TW")],
+    })
+    assert seen and "Traditional Chinese" in seen[0]
+    assert "**Rating**" not in seen[0]
+    assert "FINAL TRANSACTION PROPOSAL" not in seen[0]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("name", ANALYSTS)
+def test_every_analyst_takes_the_language_instruction_without_rating_lines(name):
+    import inspect
+
+    mod = importlib.import_module(f"tradingagents.agents.analysts.{name}")
+    src = inspect.getsource(mod)
+    assert "get_language_instruction(labelled_lines=False)" in src
+    assert "get_language_instruction()" not in src
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("module", [
+    "tradingagents.agents.managers.research_manager",
+    "tradingagents.agents.trader.trader",
+    "tradingagents.agents.managers.portfolio_manager",
+])
+def test_the_rating_agents_still_keep_their_labelled_lines_in_english(module):
+    import inspect
+
+    src = inspect.getsource(importlib.import_module(module))
+    assert "get_language_instruction()" in src
+    assert "labelled_lines=False" not in src
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("module, factory", [
     ("tradingagents.agents.researchers.bull_researcher", "create_bull_researcher"),
     ("tradingagents.agents.researchers.bear_researcher", "create_bear_researcher"),
