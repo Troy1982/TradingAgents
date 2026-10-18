@@ -178,6 +178,7 @@ export MOONSHOT_API_KEY=...        # Kimi (Moonshot)
 export GROQ_API_KEY=...            # Groq
 export NVIDIA_API_KEY=...          # NVIDIA NIM
 export FRED_API_KEY=...            # FRED macro data (free, optional)
+export FINMIND_TOKEN=...           # FinMind Taiwan stock data, e.g. 2330.TW (free, optional)
 export ALPHA_VANTAGE_API_KEY=...   # Alpha Vantage
 export TYPESAFE_API_KEY=...        # Jev social-post screening (optional)
 ```

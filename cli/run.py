@@ -1,5 +1,6 @@
 """Running one analysis from the CLI: build the graph, stream it into the live view, save the report."""
 
+import logging
 import os
 import sys
 import time
@@ -26,6 +27,7 @@ from cli.selections import depth_from_env, get_user_selections, unattended_gaps
 from cli.stats_handler import StatsCallbackHandler
 from tradingagents.agents.rating import is_review, run_rating
 from tradingagents.dataflows.symbols import safe_ticker_component
+from tradingagents.dataflows.vendors import fred
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.analyst_execution import (
     build_analyst_execution_plan,
@@ -54,6 +56,43 @@ def _announce_checkpoint_state(graph, ticker: str, trade_date: str) -> None:
         )
     else:
         message_buffer.add_message("System", f"Starting fresh for {ticker} on {trade_date}")
+
+
+# The data layer's logger: which vendor served each call, and every fallback.
+_VENDOR_LOGGER = logging.getLogger("tradingagents.dataflows")
+_vendor_log_handler: logging.Handler | None = None
+
+
+def _log_vendors_to(path: Path) -> None:
+    """Write this run's vendor choices and fallbacks to ``path``.
+
+    Replaces the previous run's file, so a process that runs several analyses
+    logs each to its own directory. It also keeps vendor warnings off the
+    terminal, where they would tear the live display.
+    """
+    global _vendor_log_handler
+    if _vendor_log_handler is not None:
+        _VENDOR_LOGGER.removeHandler(_vendor_log_handler)
+        _vendor_log_handler.close()
+    handler = logging.FileHandler(path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s", "%H:%M:%S"))
+    _VENDOR_LOGGER.addHandler(handler)
+    _VENDOR_LOGGER.setLevel(logging.INFO)
+    _vendor_log_handler = handler
+
+
+def _warn_missing_fred_key(selections: dict, config: dict) -> None:
+    """Say before the run that macro data will be missing, and how to get a key."""
+    wants_news = any(a.value == "news" for a in selections["analysts"])
+    uses_fred = "fred" in str(config.get("data_vendors", {}).get("macro_data", ""))
+    if not (wants_news and uses_fred) or fred.is_configured():
+        return
+    console.print(
+        "[yellow]FRED_API_KEY is not set: this run has no macroeconomic data (CPI, rates, "
+        "unemployment), and the news report will say so.[/yellow]\n"
+        f"[yellow]Get a free key at {fred.FRED_KEY_URL} and add[/yellow] FRED_API_KEY=<your key> "
+        "[yellow]to .env.[/yellow]\n"
+    )
 
 
 def _build_run_config(selections: dict, checkpoint: bool | None) -> dict:
@@ -111,6 +150,7 @@ def run_analysis(checkpoint: bool | None = None, portfolio=None, flags=None):
     selections = get_user_selections(flags)
 
     config = _build_run_config(selections, checkpoint)
+    _warn_missing_fred_key(selections, config)
 
     stats_handler = StatsCallbackHandler()
 
@@ -138,6 +178,7 @@ def run_analysis(checkpoint: bool | None = None, portfolio=None, flags=None):
     report_dir.mkdir(parents=True, exist_ok=True)
     log_file = results_dir / "message_tool.log"
     log_file.touch(exist_ok=True)
+    _log_vendors_to(results_dir / "data_vendors.log")
 
     def save_message_decorator(obj, func_name):
         func = getattr(obj, func_name)

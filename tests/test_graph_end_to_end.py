@@ -103,6 +103,9 @@ class _Client:
 def offline(monkeypatch, tmp_path):
     """Every vendor answers offline; returns the set of router methods called."""
     called: set[str] = set()
+    # With a FRED key the news analyst is offered its macro tool; the no-key path
+    # (tool withheld, gap stated) is covered in test_taiwan_market.py.
+    monkeypatch.setenv("FRED_API_KEY", "offline-test-key")
     for method, vendors in router.VENDOR_METHODS.items():
         for vendor in vendors:
             monkeypatch.setitem(vendors, vendor,
@@ -225,8 +228,9 @@ def test_a_streamed_run_reads_its_own_graph_config(tmp_path, monkeypatch, offlin
     graph = _graph(tmp_path, monkeypatch, ScriptedModel(), output_language="French")
     set_config({"output_language": "German"})
     seen = []
-    monkeypatch.setitem(router.VENDOR_METHODS["get_stock_data"], "yfinance",
-                        lambda *a, **k: seen.append(get_config()["output_language"]) or "prices")
+    for vendor in router.VENDOR_METHODS["get_stock_data"]:
+        monkeypatch.setitem(router.VENDOR_METHODS["get_stock_data"], vendor,
+                            lambda *a, **k: seen.append(get_config()["output_language"]) or "prices")
 
     between = [get_config()["output_language"]
                for _ in graph.stream_run(graph.create_run_state("NVDA", TRADE_DATE), **graph.propagator.get_graph_args())]

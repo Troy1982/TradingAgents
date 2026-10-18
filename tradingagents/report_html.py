@@ -13,6 +13,8 @@ from importlib.resources import files
 from markdown_it import MarkdownIt
 
 from tradingagents.agents.rating import run_rating
+from tradingagents.dataflows.router import vendor_chain_for
+from tradingagents.dataflows.symbols import NOT_FOR_TAIWAN
 from tradingagents.reporting import analyst_names
 
 # Ratings by direction, so the page can show which way the call leans.
@@ -221,7 +223,7 @@ def _group(name: str, values_html: str) -> str:
     return f'<span class="group"><span class="name">{escape(name)}</span>{values_html}</span>'
 
 
-def _run_details(final_state: dict, settings: dict | None) -> list[tuple[str, str]]:
+def _run_details(final_state: dict, settings: dict | None, ticker: str | None = None) -> list[tuple[str, str]]:
     """The run details as (label, value HTML); every value from the run is escaped."""
     details = [("Generated", escape(datetime.now().strftime("%Y-%m-%d %H:%M")))]
     if settings:
@@ -236,8 +238,12 @@ def _run_details(final_state: dict, settings: dict | None) -> list[tuple[str, st
         ))))
         vendors = {**(s("data_vendors") or {}), **(s("tool_vendors") or {})}
         if vendors:
+            # The chain as tried for this ticker, not as configured: a Taiwan
+            # symbol never reaches the US-only vendors.
             details.append(("Data vendors", " ".join(
-                _group(_CATEGORY.get(k, k), _chain(v)) for k, v in vendors.items()
+                _group(_CATEGORY.get(k, k), _chain(",".join(vendor_chain_for(v, ticker)))
+                       or _fields([f"none ({NOT_FOR_TAIWAN})"]))
+                for k, v in vendors.items()
             )))
         details.append(("Version", escape(f"TradingAgents {s('version', '?')}")))
     if final_state.get("memory_note"):
@@ -258,7 +264,7 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts) 
     details = "".join(
         f'<div class="{"note" if label == "Memory log" else "detail"}">'
         f"<dt>{escape(label)}</dt><dd>{value}</dd></div>"
-        for label, value in _run_details(final_state, settings)
+        for label, value in _run_details(final_state, settings, ticker)
     )
 
     contents, body = [], []

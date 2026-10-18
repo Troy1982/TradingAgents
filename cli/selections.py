@@ -14,6 +14,7 @@ from cli.display import (
 )
 from cli.prefs import load_last_run, sanitize, save_last_run
 from cli.prompts import (
+    TICKER_INPUT_EXAMPLES,
     ask_anthropic_effort,
     ask_gemini_thinking_config,
     ask_glm_region,
@@ -171,7 +172,7 @@ def _prompt_selections(prefs, flags):
         console.print(
             create_question_box(
                 "Step 1: Ticker Symbol",
-                "Enter the ticker, with exchange suffix when needed (e.g. SPY, 0700.HK, BTC-USD)",
+                f"Enter the ticker, with exchange suffix when needed (e.g. {TICKER_INPUT_EXAMPLES})",
                 "SPY",
             )
         )

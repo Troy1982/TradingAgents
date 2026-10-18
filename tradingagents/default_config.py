@@ -155,13 +155,47 @@ def build_default_config() -> dict:
         # The configured value is the exact vendor chain — requests are NOT silently
         # routed to vendors you didn't choose. For ordered fallback, list several,
         # e.g. "yfinance,alpha_vantage". "default" uses all available vendors.
+        #
+        # Taiwan stocks (TWSE/TPEx). With the defaults below nothing needs
+        # switching: set FINMIND_TOKEN (in .env) and a Taiwan symbol (2330,
+        # 2330.TW, 8069.TWO) is served by FinMind while every other symbol skips
+        # it and goes to the next vendor. Without the token, Taiwan symbols go
+        # to Yahoo (2330.TW) too. Other set-ups, passed to set_config() or
+        # TradingAgentsGraph(config=...):
+        #
+        #   Turn FinMind off, Yahoo for everything:
+        #     "data_vendors": {"core_stock_apis": "yfinance",
+        #                      "technical_indicators": "yfinance",
+        #                      "fundamental_data": "sec_edgar,yfinance",
+        #                      "news_data": "yfinance"}
+        #
+        #   FinMind for one tool only, e.g. Taiwan news, Yahoo for the rest:
+        #     "data_vendors": {"news_data": "yfinance", ...as above...},
+        #     "tool_vendors": {"get_news": "finmind,yfinance"}
+        #
+        #   FinMind with no Yahoo fallback (Taiwan-only runs; a US symbol then
+        #   reports NO_DATA_AVAILABLE instead of being priced):
+        #     "data_vendors": {"core_stock_apis": "finmind",
+        #                      "technical_indicators": "finmind",
+        #                      "fundamental_data": "finmind",
+        #                      "news_data": "finmind"}
+        #
+        #   Taiwan-flavoured macro headlines and reports for a Taiwan run:
+        #     "global_news_queries": ["台股 加權指數 外資", "Taiwan central bank interest rate",
+        #                             "semiconductor supply chain TSMC"],
+        #     "output_language": "Traditional Chinese"   # or TRADINGAGENTS_OUTPUT_LANGUAGE
+        #
+        # The alpha benchmark already follows the suffix: .TW / .TWO -> ^TWII.
         "data_vendors": {
-            "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
-            "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
+            # FinMind serves Taiwan (TWSE/TPEx) symbols such as 2330, 2330.TW or
+            # 8069.TWO and needs FINMIND_TOKEN; any other symbol, or a missing
+            # token, goes straight to the next vendor in the chain.
+            "core_stock_apis": "finmind,yfinance",       # Options: finmind, alpha_vantage, yfinance
+            "technical_indicators": "finmind,yfinance",  # Options: finmind, alpha_vantage, yfinance
             # Statements come from SEC EDGAR as filed (US filers), then Yahoo; the
-        # overview and insider tools, which SEC EDGAR does not serve, from Yahoo.
-        "fundamental_data": "sec_edgar,yfinance",  # Options: sec_edgar, alpha_vantage, yfinance
-            "news_data": "yfinance",             # Options: alpha_vantage, yfinance
+            # overview and insider tools, which SEC EDGAR does not serve, from Yahoo.
+            "fundamental_data": "finmind,sec_edgar,yfinance",  # Options: finmind, sec_edgar, alpha_vantage, yfinance
+            "news_data": "finmind,yfinance",             # Options: finmind, alpha_vantage, yfinance
             "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
             "prediction_markets": "polymarket",  # Options: polymarket (keyless)
         },

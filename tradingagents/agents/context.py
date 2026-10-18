@@ -11,6 +11,17 @@ from tradingagents.dataflows.vendors.yahoo.fundamentals import get_company_profi
 logger = logging.getLogger(__name__)
 
 
+# Numbers in a headline are a reporter's framing, often intraday and unverifiable;
+# the structured tools are the record (#2383 report: "急拉至 5,850 元、成交 85 張").
+NEWS_NUMBERS_RULE = (
+    "Prices, percentage moves, trading volume, revenue, earnings and every other figure "
+    "must come from the structured data the tools return. Numbers that appear in news "
+    "headlines or article text are narrative context only: do not state them as fact, "
+    "do not base a conclusion on them, and if you mention one, attribute it to the "
+    "headline (e.g. 'a headline claims ...') rather than presenting it as verified."
+)
+
+
 def get_language_instruction() -> str:
     """Return a prompt instruction for the configured output language.
 

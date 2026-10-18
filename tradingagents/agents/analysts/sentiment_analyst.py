@@ -3,9 +3,14 @@
 The node fetches its sources before calling the model and puts them in the
 prompt, so the model reports on data it was given rather than inventing posts:
 
-  1. News headlines: Yahoo Finance
+  1. News headlines: the configured news vendor (FinMind for a Taiwan symbol,
+     Yahoo Finance otherwise)
   2. StockTwits messages: the cashtag stream, with Bullish/Bearish tags
   3. Reddit posts: r/wallstreetbets, r/stocks, r/investing, or crypto communities for a crypto pair
+
+StockTwits and Reddit cover US listings and crypto only. For a Taiwan symbol
+they are not queried: each block says the source does not apply, and the model
+is told not to read sentiment into it.
 
 Each source is trimmed to the analysis window. With a TypeSafe key, the social
 posts are screened by Jev first (see post_screen). These feeds serve recent items
@@ -22,7 +27,11 @@ from datetime import datetime, timedelta
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from tradingagents.agents.context import get_instrument_context_from_state, get_language_instruction
+from tradingagents.agents.context import (
+    NEWS_NUMBERS_RULE,
+    get_instrument_context_from_state,
+    get_language_instruction,
+)
 from tradingagents.agents.post_screen import jev_screen
 from tradingagents.agents.schemas import SentimentReport, render_sentiment_report
 from tradingagents.agents.structured import (
@@ -31,6 +40,7 @@ from tradingagents.agents.structured import (
     invoke_structured_or_freetext,
 )
 from tradingagents.agents.tools import get_news
+from tradingagents.dataflows.symbols import NOT_FOR_TAIWAN, is_taiwan_symbol
 from tradingagents.dataflows.vendors.reddit import (
     CRYPTO_SUBREDDITS,
     DEFAULT_SUBREDDITS,
@@ -38,6 +48,18 @@ from tradingagents.dataflows.vendors.reddit import (
     subreddits_for,
 )
 from tradingagents.dataflows.vendors.stocktwits import fetch_stocktwits_messages
+
+
+def _not_applicable(source: str, why: str, ticker: str) -> str:
+    return f"<{source}: {NOT_FOR_TAIWAN} (not applicable to Taiwan-listed stocks). {why} Not queried for {ticker}.>"
+
+
+def _news_source(news_block: str) -> str:
+    """Which vendor the news block came from, as its header names it."""
+    first = news_block.lstrip().splitlines()[0] if news_block.strip() else ""
+    if "(FinMind)" in first:
+        return "FinMind (Taiwan financial media; headlines and links only, no summaries)"
+    return "Yahoo Finance"
 
 
 def _seven_days_back(trade_date: str) -> str:
@@ -64,16 +86,26 @@ def create_sentiment_analyst(llm):
         # returns a string (no exceptions surface from here), so the LLM
         # always sees something — either real data or a clear placeholder.
         news_block = get_news.func(ticker, start_date, end_date)
-        # Pass the analysis window so a historical run trims social posts to it
-        # instead of leaking today's chatter into a backtest (#1220).
-        screen = jev_screen(ticker)
-        stocktwits_block = fetch_stocktwits_messages(
-            ticker, limit=30, start_date=start_date, end_date=end_date, screen=screen
-        )
+        taiwan = is_taiwan_symbol(ticker)
         subreddits = subreddits_for(ticker)
-        reddit_block = fetch_reddit_posts(
-            ticker, subreddits, start_date=start_date, end_date=end_date, screen=screen
-        )
+        if taiwan:
+            # StockTwits has no Taiwan cashtags and the subreddits are US/crypto
+            # communities: an empty or failed answer there says nothing about a
+            # Taiwan stock, so they are not asked.
+            stocktwits_block = _not_applicable(
+                "StockTwits", "StockTwits indexes US cashtags only.", ticker)
+            reddit_block = _not_applicable(
+                "Reddit", f"The searched subreddits ({', '.join(subreddits)}) discuss US and crypto markets.", ticker)
+        else:
+            # Pass the analysis window so a historical run trims social posts to it
+            # instead of leaking today's chatter into a backtest (#1220).
+            screen = jev_screen(ticker)
+            stocktwits_block = fetch_stocktwits_messages(
+                ticker, limit=30, start_date=start_date, end_date=end_date, screen=screen
+            )
+            reddit_block = fetch_reddit_posts(
+                ticker, subreddits, start_date=start_date, end_date=end_date, screen=screen
+            )
 
         system_message = _build_system_message(
             ticker=ticker,
@@ -83,6 +115,7 @@ def create_sentiment_analyst(llm):
             stocktwits_block=stocktwits_block,
             reddit_block=reddit_block,
             subreddits=subreddits,
+            taiwan=taiwan,
         )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -136,6 +169,7 @@ def _build_system_message(
     stocktwits_block: str,
     reddit_block: str,
     subreddits: tuple[str, ...] = DEFAULT_SUBREDDITS,
+    taiwan: bool = False,
 ) -> str:
     """Assemble the sentiment-analyst system message with structured data blocks."""
     if subreddits == DEFAULT_SUBREDDITS:
@@ -144,11 +178,19 @@ def _build_system_message(
         character = f"r/{subreddits[0]} leans toward the coin's holders; r/CryptoCurrency and r/CryptoMarkets are broader"
     else:
         character = "r/CryptoCurrency and r/CryptoMarkets are broad crypto communities"
+    not_applicable_rule = (
+        f"\n\n10. **Sources that do not apply.** StockTwits and Reddit were not queried because "
+        f"they do not cover Taiwan-listed stocks. In the narrative and in the signal table, "
+        f"write for each of them that {NOT_FOR_TAIWAN} (this source does not apply to Taiwan "
+        f"stocks). Do not infer any sentiment, silence or retail mood from them, do not count "
+        f"them in the confidence assessment, and do not use them in cross-source comparisons; "
+        f"the read rests on the news headlines alone."
+    ) if taiwan else ""
     return f"""You are a financial market sentiment analyst. Your task is to produce a comprehensive sentiment report for {ticker} covering the period from {start_date} to {end_date}, drawing on three complementary data sources that have already been collected for you.
 
 ## Data sources (pre-fetched, in this prompt)
 
-### News headlines — Yahoo Finance, past 7 days
+### News headlines — {_news_source(news_block)}, past 7 days
 Institutional framing. Fact-driven, slower-moving signal.
 
 <start_of_news>
@@ -186,6 +228,8 @@ Community discussion, without vote or comment counts. Subreddit character matter
 7. **Identify catalysts and risks** that emerge across sources — news of upcoming earnings, product launches, competitive threats, macro headlines, etc.
 
 8. **Past sentiment is not predictive.** Frame your conclusions as signal for the trader to weigh alongside fundamentals and technicals, not as a price call.
+
+9. **Numbers in headlines are not facts.** {NEWS_NUMBERS_RULE}{not_applicable_rule}
 
 ## Output fields
 

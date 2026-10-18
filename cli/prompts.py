@@ -15,7 +15,7 @@ from tradingagents.llm_clients.api_key_env import get_api_key_env
 from tradingagents.llm_clients.model_catalog import get_model_options
 from tradingagents.llm_clients.openai_client import OPENAI_COMPATIBLE_PROVIDERS, SIGNED_IN_PROVIDERS
 
-TICKER_INPUT_EXAMPLES = "SPY, 0700.HK, BTC-USD"
+TICKER_INPUT_EXAMPLES = "SPY, 2330.TW, 0700.HK, BTC-USD"
 
 ANALYST_CHOICES = [
     ("Market Analyst", AnalystType.MARKET),
@@ -115,13 +115,16 @@ def normalize_ticker_symbol(ticker: str) -> str:
 
     Delegates to the data layer's ``normalize_symbol`` so the symbol the CLI
     passes through the pipeline is exactly the one the data path will price
-    (e.g. ``BTCUSD`` -> ``BTC-USD``, ``XAUUSD`` -> ``GC=F``). Falls back to the
+    (e.g. ``BTCUSD`` -> ``BTC-USD``, ``XAUUSD`` -> ``GC=F``, ``2330`` -> ``2330.TW``). Falls back to the
     plain upper-case if the data layer is unavailable.
     """
     try:
         from tradingagents.dataflows.symbols import normalize_symbol
+        from tradingagents.dataflows.vendors.finmind.client import resolve_taiwan_symbol
 
-        return normalize_symbol(ticker)
+        # A bare Taiwan code (2330, 8069) gets its exchange suffix, so the
+        # paths that price through Yahoo directly find it too.
+        return resolve_taiwan_symbol(ticker.strip().upper()) or normalize_symbol(ticker)
     except Exception:
         return ticker.strip().upper()
 

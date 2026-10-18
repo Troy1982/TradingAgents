@@ -99,6 +99,14 @@ class FredNotConfiguredError(VendorNotConfiguredError):
     """
 
 
+FRED_KEY_URL = "https://fred.stlouisfed.org/docs/api/api_key.html"
+
+
+def is_configured() -> bool:
+    """Whether FRED can be asked at all (FRED_API_KEY is set)."""
+    return bool(os.getenv("FRED_API_KEY"))
+
+
 def get_api_key() -> str:
     """Retrieve the FRED API key from the environment."""
     api_key = os.getenv("FRED_API_KEY")
