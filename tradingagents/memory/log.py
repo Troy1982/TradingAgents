@@ -1,4 +1,10 @@
-"""The memory log: an append-only markdown record of each decision and, once settled, its outcome."""
+"""The memory log: an append-only markdown record of each decision and, once settled, its outcome.
+
+An entry whose body starts with a ``RUN: baseline`` or ``RUN: test`` line was a
+check of the system, not a decision: ``load_entries`` leaves it out, so it is
+never settled, never read back as a lesson, never scored by a backtest and
+never blocks a real decision on the same date. ``mark_entries`` adds the line.
+"""
 
 import contextlib
 import re
@@ -16,6 +22,9 @@ class TradingMemoryLog:
     # Precompiled patterns — avoids re-compilation on every load_entries() call
     _DECISION_RE = re.compile(r"DECISION:\n(.*?)(?=\nREFLECTION:|\Z)", re.DOTALL)
     _REFLECTION_RE = re.compile(r"REFLECTION:\n(.*?)$", re.DOTALL)
+    _RUN_RE = re.compile(r"^RUN: (\w+)$", re.MULTILINE)
+    # Run kinds that are not decisions (see the module docstring).
+    EXCLUDED_RUNS = ("baseline", "test")
 
     def __init__(self, config: dict = None):
         cfg = config or {}
@@ -26,6 +35,8 @@ class TradingMemoryLog:
             self._log_path.parent.mkdir(parents=True, exist_ok=True)
         # Optional cap on resolved entries. None disables rotation.
         self._max_entries = cfg.get("memory_log_max_entries")
+        # False keeps a run (a test, a baseline check) from writing to the log.
+        self.enabled = cfg.get("memory_log_enabled", True) is not False
 
     # --- Write: a run records its decision ---
 
@@ -41,18 +52,15 @@ class TradingMemoryLog:
         ``rating`` is the decision's own rating when the caller has it; without
         one it is read from the decision text.
         """
-        if not self._log_path:
+        if not self._log_path or not self.enabled:
             return
         with locked(self._log_path):
-            # Idempotency guard: fast raw-text scan instead of full parse. Any entry
-            # for this ticker and date blocks another, pending or settled: a re-run
-            # after the outcome landed would otherwise count the same decision twice
-            # in past context and in every aggregate over the log.
-            if self._log_path.exists():
-                raw = self._log_path.read_text(encoding="utf-8")
-                for line in raw.splitlines():
-                    if line.startswith(f"[{trade_date} | {ticker} |") and line.endswith("]"):
-                        return
+            # Idempotency guard: any decision for this ticker and date blocks
+            # another, pending or settled: a re-run after the outcome landed would
+            # otherwise count the same decision twice in past context and in every
+            # aggregate over the log. An excluded run is not a decision.
+            if any(e["date"] == trade_date and e["ticker"] == ticker for e in self.load_entries()):
+                return
             rating = rating or parse_rating(final_trade_decision)
             tag = f"[{trade_date} | {ticker} | {rating} | pending]"
             entry = f"{tag}\n\nDECISION:\n{final_trade_decision}{self._SEPARATOR}"
@@ -73,8 +81,8 @@ class TradingMemoryLog:
 
     # --- Read ---
 
-    def load_entries(self) -> list[dict]:
-        """Parse all entries from log. Returns list of dicts."""
+    def load_entries(self, include_excluded: bool = False) -> list[dict]:
+        """Parse the log's entries, leaving out excluded runs unless asked for them."""
         if not self._log_path or not self._log_path.exists():
             return []
         text = self._log_path.read_text(encoding="utf-8")
@@ -82,9 +90,36 @@ class TradingMemoryLog:
         entries = []
         for raw in raw_entries:
             parsed = self._parse_entry(raw)
-            if parsed:
+            if parsed and (include_excluded or parsed["run"] not in self.EXCLUDED_RUNS):
                 entries.append(parsed)
         return entries
+
+    def mark_entries(self, keys, run: str) -> list[tuple[str, str]]:
+        """Mark the entries for ``keys`` ((trade_date, ticker) pairs) as ``run``; returns those marked.
+
+        The mark is a ``RUN: <run>`` line under the entry's tag; an entry
+        already marked is left as it is.
+        """
+        if run not in self.EXCLUDED_RUNS:
+            raise ValueError(f"run must be one of {self.EXCLUDED_RUNS}, got {run!r}")
+        if not self._log_path or not self._log_path.exists():
+            return []
+        wanted = {(str(d), str(t)) for d, t in keys}
+        marked = []
+        with locked(self._log_path):
+            blocks = self._log_path.read_text(encoding="utf-8").split(self._SEPARATOR)
+            for i, block in enumerate(blocks):
+                parsed = self._parse_entry(block)
+                if not parsed or (parsed["date"], parsed["ticker"]) not in wanted or parsed["run"]:
+                    continue
+                tag, _, rest = block.strip().partition("\n")
+                blocks[i] = f"{tag}\nRUN: {run}\n{rest}"
+                marked.append((parsed["date"], parsed["ticker"]))
+            if marked:
+                tmp_path = self._log_path.with_suffix(".tmp")
+                tmp_path.write_text(self._SEPARATOR.join(blocks), encoding="utf-8")
+                tmp_path.replace(self._log_path)
+        return marked
 
     def get_pending_entries(self) -> list[dict]:
         """Return entries with outcome:pending, for settlement."""
@@ -334,6 +369,8 @@ class TradingMemoryLog:
             "resolved": resolved,
         }
         body = "\n".join(lines[1:]).strip()
+        run_match = self._RUN_RE.match(body)
+        entry["run"] = run_match.group(1) if run_match else None
         decision_match = self._DECISION_RE.search(body)
         reflection_match = self._REFLECTION_RE.search(body)
         entry["decision"] = decision_match.group(1).strip() if decision_match else ""

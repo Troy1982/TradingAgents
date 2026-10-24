@@ -4,6 +4,12 @@ FinMind serves one day of a stock's news per request and stamps each article
 in UTC. Each day of the window is fetched (and cached for good once it is over),
 so unlike Yahoo's feed the window is observed in full and an empty result is a
 real absence of news. Articles carry a title, source and link, but no summary.
+
+The window is read on the Taipei clock, as the run's date is, ending at the
+configured ``as_of_time`` on the analysis date (``in_market_window``). A Taipei
+day starts at 16:00 UTC the day before, so the UTC day before the window is
+fetched too. Cut in UTC, a run dated 2026-10-04 read a 00:22 2026-10-05
+headline announcing the September revenue filed that day.
 """
 
 from datetime import UTC, date, datetime, timedelta
@@ -11,7 +17,7 @@ from datetime import UTC, date, datetime, timedelta
 import pandas as pd
 
 from tradingagents.dataflows.config import get_config
-from tradingagents.dataflows.date_window import coverage_gap, in_window
+from tradingagents.dataflows.date_window import TAIPEI, coverage_gap, in_market_window
 from tradingagents.dataflows.vendors.finmind.client import (
     PRICE_TTL_SECONDS,
     fetch,
@@ -41,7 +47,8 @@ def get_news(ticker: str, start_date: str, end_date: str) -> str:
     first_day = max(start_dt.date(), last_day - timedelta(days=MAX_DAYS - 1))
     articles, seen = [], set()
     day = last_day
-    while day >= first_day:
+    # The UTC day before the first Taipei day holds that day's first eight hours.
+    while day >= first_day - timedelta(days=1):
         rows = fetch(
             "TaiwanStockNews", stock_id, day.isoformat(), None,
             ttl=PRICE_TTL_SECONDS, final=day < today - timedelta(days=1),
@@ -60,7 +67,7 @@ def get_news(ticker: str, start_date: str, end_date: str) -> str:
             })
         day -= timedelta(days=1)
 
-    in_range = [a for a in articles if in_window(a["pub_date"], start_dt, end_dt)]
+    in_range = [a for a in articles if in_market_window(a["pub_date"], start_date, end_date, TAIPEI)]
     in_range.sort(key=lambda a: a["pub_date"] or datetime.min.replace(tzinfo=UTC), reverse=True)
     in_range = in_range[: get_config()["news_article_limit"]]
 

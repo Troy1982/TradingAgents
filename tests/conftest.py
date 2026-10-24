@@ -76,6 +76,16 @@ def _no_network(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _fresh_trading_calendar():
+    """The Taiwan trading calendar is kept for the process; a test reads its own."""
+    from tradingagents.dataflows.vendors.finmind import calendar
+
+    calendar.clear_cache()
+    yield
+    calendar.clear_cache()
+
+
+@pytest.fixture(autouse=True)
 def _at_a_terminal(monkeypatch):
     """Tests of the interactive steps run as if at a terminal; pytest's stdin is
     not one. A test of an unattended run sets isatty to False itself."""

@@ -42,9 +42,11 @@ def _validate_trade_date(trade_date) -> str:
 
 
 # Config keys that do not change what a run writes: where it keeps its files,
-# whether it checkpoints, and how often it retries a provider.
+# whether it checkpoints or records to the memory log, and how often it retries
+# a provider.
 _NOT_IN_SIGNATURE = frozenset({
     "results_dir", "data_cache_dir", "memory_log_path", "checkpoint_enabled", "llm_max_retries",
+    "memory_log_enabled",
 })
 
 
@@ -318,8 +320,9 @@ class TradingAgentsGraph:
         note = ""
         try:
             # Another run settling the same log does the work; this one goes on.
-            done = self.settle_all_pending(wait=False)
-            if done.failed:
+            # A run kept out of the log (memory_log_enabled false) settles nothing.
+            done = self.settle_all_pending(wait=False) if self.memory_log.enabled else None
+            if done is not None and done.failed:
                 note = (f"{len(done.failed)} past decision(s) could not be settled this run "
                         "and stay pending.")
         except Exception as exc:

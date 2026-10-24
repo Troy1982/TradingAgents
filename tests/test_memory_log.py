@@ -1314,3 +1314,56 @@ def test_a_run_does_not_wait_on_another_settlement_pass(tmp_path):
     worker.join()
 
     assert elapsed < 1 and result.settled == [] and result.failed == []
+
+
+# ---------------------------------------------------------------------------
+# Baseline and test runs: marked out of the log, or kept out of it
+# ---------------------------------------------------------------------------
+
+def _settle(log, ticker, date, resolved="2026-10-13"):
+    log.update_with_outcome(ticker, date, -0.027, 0.0, 5, "A lesson.", resolution_date=resolved)
+
+
+@pytest.mark.unit
+def test_a_marked_run_is_left_out_of_every_reader(tmp_path):
+    log = make_log(tmp_path)
+    log.store_decision("2383.TW", "2026-10-04", DECISION_SELL)
+    _settle(log, "2383.TW", "2026-10-04")
+    log.store_decision("8069.TWO", "2026-10-17", DECISION_SELL)
+
+    marked = log.mark_entries([("2026-10-04", "2383.TW"), ("2026-10-17", "8069.TWO")], "baseline")
+
+    assert marked == [("2026-10-04", "2383.TW"), ("2026-10-17", "8069.TWO")]
+    assert log.load_entries() == []
+    assert log.get_pending_entries() == []                      # never settled
+    assert log.get_past_context("2383.TW") == ""                # never a lesson
+    kept = log.load_entries(include_excluded=True)
+    assert [e["run"] for e in kept] == ["baseline", "baseline"]
+    assert kept[0]["reflection"] == "A lesson." and kept[0]["decision"].startswith("Rating: Sell")
+
+
+@pytest.mark.unit
+def test_a_marked_run_does_not_block_a_real_decision_on_its_date(tmp_path):
+    log = make_log(tmp_path)
+    log.store_decision("8069.TWO", "2026-10-17", DECISION_SELL)
+    log.mark_entries([("2026-10-17", "8069.TWO")], "test")
+    log.store_decision("8069.TWO", "2026-10-17", DECISION_BUY)
+    assert [e["rating"] for e in log.load_entries()] == ["Buy"]
+
+
+@pytest.mark.unit
+def test_marking_is_idempotent_and_only_takes_known_kinds(tmp_path):
+    log = make_log(tmp_path)
+    log.store_decision("2383.TW", "2026-10-04", DECISION_SELL)
+    assert log.mark_entries([("2026-10-04", "2383.TW")], "baseline")
+    assert log.mark_entries([("2026-10-04", "2383.TW")], "baseline") == []
+    assert (tmp_path / "trading_memory.md").read_text(encoding="utf-8").count("RUN: baseline") == 1
+    with pytest.raises(ValueError):
+        log.mark_entries([("2026-10-04", "2383.TW")], "real")
+
+
+@pytest.mark.unit
+def test_a_disabled_log_records_nothing(tmp_path):
+    log = TradingMemoryLog({"memory_log_path": str(tmp_path / "trading_memory.md"), "memory_log_enabled": False})
+    log.store_decision("2383.TW", "2026-10-04", DECISION_SELL)
+    assert not (tmp_path / "trading_memory.md").exists()

@@ -25,6 +25,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
     "TRADINGAGENTS_LLM_MAX_RETRIES":      "llm_max_retries",
     "TRADINGAGENTS_MAX_TOKENS":           "max_tokens",
+    "TRADINGAGENTS_AS_OF_TIME":           "as_of_time",
+    "TRADINGAGENTS_MEMORY_LOG_ENABLED":   "memory_log_enabled",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
     # interactive choice, which is skipped when the matching var is set.
@@ -88,6 +90,10 @@ def build_default_config() -> dict:
         # the oldest resolved entries are pruned once this limit is exceeded.
         # Pending entries are never pruned. None disables rotation entirely.
         "memory_log_max_entries": None,
+        # False runs without touching the memory log: no decision is recorded
+        # and no past one is settled (the lessons already there are still
+        # read). For test and baseline runs, which are not decisions.
+        "memory_log_enabled": True,
         # LLM settings
         "llm_provider": "openai",
         "deep_think_llm": "gpt-6-sol",
@@ -141,6 +147,10 @@ def build_default_config() -> dict:
         "news_article_limit": 20,             # max articles per ticker (ticker-news)
         "global_news_article_limit": 10,      # max articles for global/macro news
         "global_news_lookback_days": 7,       # macro news lookback window
+        # For a Taiwan listing, dated items (news) count as known by the
+        # analysis date up to this time of day, Asia/Taipei. "13:30:00" would
+        # hold a run to what was public at the close.
+        "as_of_time": "23:59:59",
         # Search queries used by get_global_news for macro headlines. Extend or
         # replace to broaden geographic / sector coverage.
         "global_news_queries": [

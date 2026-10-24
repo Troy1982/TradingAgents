@@ -7,7 +7,12 @@ import yfinance as yf
 from dateutil.relativedelta import relativedelta
 
 from tradingagents.dataflows.config import get_config
-from tradingagents.dataflows.date_window import coverage_gap, in_window
+from tradingagents.dataflows.date_window import (
+    coverage_gap,
+    in_market_window,
+    in_window,
+    market_timezone,
+)
 from tradingagents.dataflows.errors import VendorUnavailableError
 from tradingagents.dataflows.symbols import normalize_symbol
 from tradingagents.dataflows.vendors.yahoo.common import yf_retry
@@ -118,8 +123,12 @@ def get_news_yfinance(
 
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-    # Keep only articles within the requested window (look-ahead safe).
-    in_range = [a for a in articles if in_window(a["pub_date"], start_dt, end_dt)]
+    # Keep only articles within the requested window (look-ahead safe), on the
+    # market's own clock where its days are not UTC days (Taiwan).
+    tz = market_timezone(ticker)
+    in_range = [a for a in articles
+                if (in_market_window(a["pub_date"], start_date, end_date, tz) if tz
+                    else in_window(a["pub_date"], start_dt, end_dt))]
     if in_range:
         return f"## {ticker}{resolved} News, from {start_date} to {end_date}:\n\n{_format_articles(in_range)}"
 
@@ -138,6 +147,7 @@ def get_global_news_yfinance(
     as_of_date: str,
     look_back_days: int | None = None,
     limit: int | None = None,
+    tz: str | None = None,
 ) -> str:
     """
     Retrieve global/macro economic news using yfinance Search.
@@ -148,6 +158,8 @@ def get_global_news_yfinance(
             ``global_news_lookback_days`` from the active config.
         limit: Maximum number of articles to return. ``None`` falls back to
             ``global_news_article_limit`` from the active config.
+        tz: The run's market clock (``market_timezone``), for a market whose
+            days are not UTC days; None cuts the window in UTC.
 
     Returns:
         Formatted string containing global news articles
@@ -179,7 +191,9 @@ def get_global_news_yfinance(
             # remaining searches short (#1356). Flat articles are filtered
             # on the same rule, so none can leak future news (#1007).
             data = _extract_article_data(article)
-            if not in_window(data["pub_date"], start_dt, curr_dt):
+            kept = (in_market_window(data["pub_date"], start_date, as_of_date, tz) if tz
+                    else in_window(data["pub_date"], start_dt, curr_dt))
+            if not kept:
                 continue
             if data["title"] and data["title"] not in seen_titles:
                 seen_titles.add(data["title"])

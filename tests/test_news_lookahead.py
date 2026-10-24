@@ -417,3 +417,63 @@ def test_one_malformed_article_does_not_lose_the_feed(monkeypatch):
     _ticker_with([good, bad], monkeypatch)
     out = ynews.get_news_yfinance("ZS", "2026-09-20", "2026-09-23")
     assert "Kept" in out and "Also kept" in out
+
+
+# --- a market whose days are not UTC days (Taiwan) -------------------------------------
+
+def _at(stamp):
+    """Epoch seconds for a UTC ``YYYY-MM-DD HH:MM`` stamp."""
+    return int(datetime.strptime(stamp, "%Y-%m-%d %H:%M").replace(tzinfo=UTC).timestamp())
+
+
+@pytest.mark.unit
+def test_global_news_for_a_taiwan_run_ends_at_taipei_midnight(monkeypatch):
+    articles = [
+        {"title": "AFTER TAIPEI MIDNIGHT", "publisher": "P", "link": "l", "providerPublishTime": _at("2026-10-04 16:30")},
+        {"title": "LATE TAIPEI EVENING", "publisher": "P", "link": "l", "providerPublishTime": _at("2026-10-04 15:30")},
+        {"title": "BEFORE THE FIRST TAIPEI DAY", "publisher": "P", "link": "l",
+         "providerPublishTime": _at("2026-09-26 15:30")},
+    ]
+
+    class FakeSearch:
+        def __init__(self, *a, **k):
+            self.news = articles
+
+    monkeypatch.setattr(ynews.yf, "Search", FakeSearch)
+    taipei = ynews.get_global_news_yfinance("2026-10-04", look_back_days=7, limit=10, tz="Asia/Taipei")
+    assert "LATE TAIPEI EVENING" in taipei
+    assert "AFTER TAIPEI MIDNIGHT" not in taipei
+    assert "BEFORE THE FIRST TAIPEI DAY" not in taipei
+    # Without a market clock the window keeps its UTC days.
+    assert "AFTER TAIPEI MIDNIGHT" in ynews.get_global_news_yfinance("2026-10-04", look_back_days=7, limit=10)
+
+
+@pytest.mark.unit
+def test_ticker_news_for_a_taiwan_symbol_is_cut_on_the_taipei_clock(monkeypatch):
+    _ticker_with([
+        {"title": "FILED AFTER MIDNIGHT", "publisher": "P", "link": "l", "providerPublishTime": _at("2026-10-04 16:22")},
+        {"title": "SAME DAY", "publisher": "P", "link": "l", "providerPublishTime": _at("2026-10-04 03:00")},
+    ], monkeypatch)
+    out = ynews.get_news_yfinance("2383.TW", "2026-09-27", "2026-10-04")
+    assert "SAME DAY" in out and "FILED AFTER MIDNIGHT" not in out
+
+
+@pytest.mark.unit
+def test_the_global_news_tool_passes_a_taiwan_runs_clock(monkeypatch):
+    from tradingagents.agents import tools
+    seen = []
+    monkeypatch.setattr(tools, "route_to_vendor", lambda *a, **k: seen.append(k) or "news")
+    tools.get_global_news.func("2026-10-04", trade_date="2026-10-04", symbol="2383.TW")
+    tools.get_global_news.func("2026-10-04", trade_date="2026-10-04", symbol="NVDA")
+    assert seen == [{"tz": "Asia/Taipei"}, {}]
+
+
+@pytest.mark.unit
+def test_alpha_vantage_asks_for_the_taipei_day_in_utc(monkeypatch):
+    from tradingagents.dataflows.vendors.alpha_vantage import news as av_news
+    sent = []
+    monkeypatch.setattr(av_news, "_make_api_request", lambda fn, params: sent.append(params) or "{}")
+    av_news.get_global_news("2026-10-04", look_back_days=7, limit=5, tz="Asia/Taipei")
+    av_news.get_news("2383.TW", "2026-09-27", "2026-10-04")
+    for params in sent:
+        assert params["time_from"] == "20260926T1600" and params["time_to"] == "20261004T1559"

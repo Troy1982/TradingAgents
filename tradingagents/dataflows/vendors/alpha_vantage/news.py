@@ -1,10 +1,22 @@
 
 from tradingagents.dataflows.config import get_config
-from tradingagents.dataflows.date_window import withhold_undisclosed_trades
+from tradingagents.dataflows.date_window import (
+    market_timezone,
+    market_window,
+    withhold_undisclosed_trades,
+)
 from tradingagents.dataflows.vendors.alpha_vantage.common import (
     _make_api_request,
     format_datetime_for_api,
 )
+
+
+def _time_range(start_date: str, end_date: str, tz: str | None) -> tuple[str, str]:
+    """``time_from`` / ``time_to`` for the window, in UTC on ``tz``'s clock when given."""
+    if tz is None:
+        return format_datetime_for_api(start_date), format_datetime_for_api(end_date, end_of_day=True)
+    start, cutoff = market_window(start_date, end_date, tz)
+    return format_datetime_for_api(start), format_datetime_for_api(cutoff)
 
 
 def get_news(ticker, start_date, end_date) -> dict[str, str] | str:
@@ -23,17 +35,20 @@ def get_news(ticker, start_date, end_date) -> dict[str, str] | str:
 
     # Without a limit the endpoint returns 50 articles, each with per-ticker
     # sentiment arrays, and all of it reaches the prompt.
+    time_from, time_to = _time_range(start_date, end_date, market_timezone(ticker))
     params = {
         "tickers": ticker,
-        "time_from": format_datetime_for_api(start_date),
-        "time_to": format_datetime_for_api(end_date, end_of_day=True),
+        "time_from": time_from,
+        "time_to": time_to,
         "limit": str(get_config()["news_article_limit"]),
     }
 
     return _make_api_request("NEWS_SENTIMENT", params)
 
 
-def get_global_news(as_of_date, look_back_days: int | None = None, limit: int | None = None) -> dict[str, str] | str:
+def get_global_news(
+    as_of_date, look_back_days: int | None = None, limit: int | None = None, tz: str | None = None,
+) -> dict[str, str] | str:
     """Returns global market news & sentiment data without ticker-specific filtering.
 
     Covers broad market topics like financial markets, economy, and more.
@@ -44,6 +59,7 @@ def get_global_news(as_of_date, look_back_days: int | None = None, limit: int | 
             ``global_news_lookback_days`` from the active config.
         limit: Maximum number of articles; ``None`` uses
             ``global_news_article_limit`` from the active config.
+        tz: The run's market clock (``market_timezone``); None cuts the window in UTC.
 
     Returns:
         Dictionary containing global news sentiment data or JSON string.
@@ -60,10 +76,11 @@ def get_global_news(as_of_date, look_back_days: int | None = None, limit: int | 
     start_dt = curr_dt - timedelta(days=look_back_days)
     start_date = start_dt.strftime("%Y-%m-%d")
 
+    time_from, time_to = _time_range(start_date, as_of_date, tz)
     params = {
         "topics": "financial_markets,economy_macro,economy_monetary",
-        "time_from": format_datetime_for_api(start_date),
-        "time_to": format_datetime_for_api(as_of_date, end_of_day=True),
+        "time_from": time_from,
+        "time_to": time_to,
         "limit": str(limit),
     }
 

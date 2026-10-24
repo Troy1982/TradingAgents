@@ -6,18 +6,59 @@
   window: timestamps normalized to UTC, the upper bound exclusive at midnight
   after ``end``, and an undated item kept only when the window reaches the
   present, since a backtest cannot prove it is not from the future (#1126, #1220).
+- ``in_market_window`` does the same on the market's own clock for a market
+  whose days are not UTC days: a Taiwan listing's window runs from midnight on
+  its first day to ``as_of_time`` on the analysis date, Asia/Taipei. Cut in
+  UTC, a Taiwan run would read the next day's first eight hours.
 - ``coverage_gap`` reports a window a feed cannot reach as unavailable, not empty.
 - ``withhold_live_profile`` withholds present-day snapshots from historical runs.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+TAIPEI = "Asia/Taipei"
 
 
 def to_utc(dt: datetime) -> datetime:
     """Normalize a datetime to UTC-aware; a naive value is assumed to be UTC."""
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
+def market_timezone(symbol: str | None) -> str | None:
+    """The time zone a symbol's analysis days are counted in, or None for UTC days."""
+    from tradingagents.dataflows.symbols import is_taiwan_symbol
+
+    return TAIPEI if symbol and is_taiwan_symbol(str(symbol)) else None
+
+
+def as_of_time() -> time:
+    """The time of day on the analysis date that a market-clock window ends at (config ``as_of_time``)."""
+    from tradingagents.dataflows.config import get_config
+
+    value = str(get_config().get("as_of_time") or "23:59:59")
+    return time.fromisoformat(value)
+
+
+def market_window(start_date: str, end_date: str, tz: str) -> tuple[datetime, datetime]:
+    """``[start, cutoff]`` in UTC: midnight on ``start_date`` and ``as_of_time`` on ``end_date``, in ``tz``."""
+    zone = ZoneInfo(tz)
+    start = datetime.combine(datetime.strptime(start_date, "%Y-%m-%d").date(), time(0), zone)
+    cutoff = datetime.combine(datetime.strptime(end_date, "%Y-%m-%d").date(), as_of_time(), zone)
+    return start.astimezone(UTC), cutoff.astimezone(UTC)
+
+
+def in_market_window(pub_dt: datetime | None, start_date: str, end_date: str, tz: str) -> bool:
+    """Whether an item belongs in ``[start, cutoff]`` on ``tz``'s clock (see ``market_window``).
+
+    ``pub_dt`` None means undated: kept only when the window reaches the present.
+    """
+    start, cutoff = market_window(start_date, end_date, tz)
+    if pub_dt is not None:
+        return start <= to_utc(pub_dt) <= cutoff
+    return cutoff >= datetime.now(UTC) - timedelta(days=1)
 
 
 def in_window(pub_dt: datetime | None, start_dt: datetime, end_dt: datetime) -> bool:

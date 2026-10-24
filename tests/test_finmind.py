@@ -43,6 +43,9 @@ _INCOME = _statement(
     + [(f"2025-{m}", "IncomeAfterTaxes", 10.0) for m in ["03-31", "06-30", "09-30", "12-31"]]
     + [("2026-03-31", "Revenue", 500.0), ("2026-06-30", "Revenue", 600.0)]
     + [("2026-03-31", "IncomeAfterTaxes", 50.0), ("2026-06-30", "IncomeAfterTaxes", 60.0)]
+    + [(f"2025-{m}", "EquityAttributableToOwnersOfParent", 9.0) for m in ["09-30", "12-31"]]
+    + [("2026-03-31", "EquityAttributableToOwnersOfParent", 45.0),
+       ("2026-06-30", "EquityAttributableToOwnersOfParent", 54.0)]
 )
 # Year-to-date, as FinMind reports the cash-flow statement.
 _CASHFLOW = _statement([
@@ -112,8 +115,9 @@ def _fake_api(params, token):
         assert "end_date" not in params  # FinMind refuses a range for news
         return _NEWS.get(params["start_date"], [])
     if dataset == "TaiwanStockInfo":
-        listing = {"2330": "twse", "8069": "tpex"}.get(params.get("data_id"))
-        return [{"stock_id": params["data_id"], "stock_name": "TSMC", "industry_category": "Semis",
+        listing = {"2330": "twse", "8069": "tpex", "2881": "twse"}.get(params.get("data_id"))
+        industry = "金融保險業" if params.get("data_id") == "2881" else "Semis"
+        return [{"stock_id": params["data_id"], "stock_name": "TSMC", "industry_category": industry,
                  "type": listing}] if listing else []
     return []
 
@@ -318,7 +322,8 @@ def test_year_to_date_cash_flows_are_reported_per_quarter(api):
 def test_annual_income_sums_complete_years_only(api):
     out = finmind.get_income_statement("2330.TW", "annual")
     assert "2025-12-31" in out and "2026-12-31" not in out
-    frame = pd.read_csv(pd.io.common.StringIO(out.split("\n", 2)[2]), index_col=0)
+    csv = "\n".join(line for line in out.splitlines() if not line.startswith("#"))
+    frame = pd.read_csv(pd.io.common.StringIO(csv), index_col=0)
     assert frame.at["Revenue", "2025-12-31"] == 1000.0
     assert frame.at["EPS", "2025-12-31"] == 4.0
 
@@ -332,11 +337,38 @@ def test_balance_sheet_drops_share_of_total_rows(api):
 
 @pytest.mark.unit
 def test_a_past_run_sees_only_periods_past_their_filing_deadline(api):
-    before = finmind.get_income_statement("2330.TW", "quarterly", "2026-08-30")
-    after = finmind.get_income_statement("2330.TW", "quarterly", "2026-08-31")
+    before = finmind.get_income_statement("2330.TW", "quarterly", "2026-08-13")
+    after = finmind.get_income_statement("2330.TW", "quarterly", "2026-08-14")
     assert "2026-06-30" not in before and "2026-03-31" in before
     assert "2026-06-30" in after
-    assert "# Point-in-time as of: 2026-08-30" in before
+    assert "# Point-in-time as of: 2026-08-13" in before
+
+
+@pytest.mark.unit
+def test_a_financial_company_is_served_on_the_later_deadline(api):
+    # 2881 is listed under 金融保險業: its Q2 is due 08-31, not 08-14.
+    assert "2026-06-30" not in finmind.get_income_statement("2881.TW", "quarterly", "2026-08-30")
+    assert "2026-06-30" in finmind.get_income_statement("2881.TW", "quarterly", "2026-08-31")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("period, financial, due", [
+    ("2026-03-31", False, "2026-05-15"), ("2026-06-30", False, "2026-08-14"),
+    ("2026-09-30", False, "2026-11-14"), ("2025-12-31", False, "2026-03-31"),
+    ("2026-03-31", True, "2026-05-31"), ("2026-06-30", True, "2026-08-31"),
+    ("2026-09-30", True, "2026-11-30"), ("2025-12-31", True, "2026-03-31"),
+])
+def test_filing_deadlines(period, financial, due):
+    from tradingagents.dataflows.vendors.finmind.fundamentals import filing_deadline
+    assert filing_deadline(pd.Timestamp(period), financial) == pd.Timestamp(due)
+
+
+@pytest.mark.unit
+def test_an_unreadable_listing_takes_the_later_deadline(api, monkeypatch):
+    from tradingagents.dataflows.vendors.finmind.fundamentals import is_financial
+    monkeypatch.setattr(client, "_request", mock.Mock(side_effect=VendorUnavailableError("down")))
+    assert is_financial("2330")
+    assert is_financial("9999")    # not listed
 
 
 @pytest.mark.unit
@@ -354,6 +386,16 @@ def test_fundamentals_report_trailing_figures_and_withhold_todays_profile_from_t
     assert "Name:" not in past and "# Point-in-time as of: 2026-08-30" in past
 
 
+@pytest.mark.unit
+def test_parent_net_income_is_reported_apart_from_net_income_with_minorities(api):
+    out = finmind.get_fundamentals("2330.TW")
+    # The four latest quarters: 2025 Q3 to 2026 Q2.
+    assert "Net Income Attributable to Owners of the Parent (歸母淨利, TTM 2025 Q3～2026 Q2): 117 TWD" in out
+    assert "Net Income incl. Non-controlling Interests (稅後淨利, TTM 2025 Q3～2026 Q2): 130 TWD" in out
+    statement = finmind.get_income_statement("2330.TW", "quarterly")
+    assert "EquityAttributableToOwnersOfParent = net income attributable to owners of the parent (歸母淨利)" in statement
+
+
 # --- news ------------------------------------------------------------------------
 
 @pytest.mark.unit
@@ -363,7 +405,28 @@ def test_news_is_fetched_per_day_deduplicated_and_windowed(api):
     assert out.count("### Closed up (source: A)") == 1
     assert out.index("Targets raised") < out.index("Closed up")   # newest first
     dates = sorted(c.args[0]["start_date"] for c in api.call_args_list)
-    assert dates == ["2026-10-15", "2026-10-16"]
+    # The UTC day before the window holds the first Taipei day's early hours.
+    assert dates == ["2026-10-14", "2026-10-15", "2026-10-16"]
+
+
+@pytest.mark.unit
+def test_the_news_window_is_cut_on_taipei_days(api, monkeypatch):
+    news = {
+        # 2026-10-15 01:30 in Taipei: inside a window that starts on 10-15.
+        "2026-10-14": [{"date": "2026-10-14 17:30:00", "link": "https://early", "source": "A",
+                        "title": "Early on the first day"}],
+        # 2026-10-17 00:22 in Taipei: past a window that ends on 10-16.
+        "2026-10-16": [{"date": "2026-10-16 16:22:00", "link": "https://late", "source": "B",
+                        "title": "September revenue filed"},
+                       {"date": "2026-10-16 15:59:00", "link": "https://last", "source": "C",
+                        "title": "Last minute of the day"}],
+    }
+    monkeypatch.setattr(client, "_request", mock.Mock(
+        side_effect=lambda params, token: news.get(params["start_date"], [])))
+    out = finmind.get_news("2330.TW", "2026-10-15", "2026-10-16")
+    assert "Early on the first day" in out
+    assert "Last minute of the day" in out
+    assert "September revenue filed" not in out
 
 
 @pytest.mark.unit
@@ -412,6 +475,35 @@ def test_a_past_run_sees_only_revenue_published_by_its_date(api):
     # An older row with no create_time counts as published on the 10th of its month.
     assert "2025-08," in _revenue_table(finmind.get_fundamentals("2330.TW", "2025-09-10")).to_csv()
     assert "Latest Monthly Revenue (2025-07)" in finmind.get_fundamentals("2330.TW", "2025-09-09")
+
+
+@pytest.mark.unit
+def test_revenue_counts_as_public_on_its_create_time_or_its_deadline_whichever_is_first(api, monkeypatch):
+    rows = copy.deepcopy(_REVENUE)
+    for row in rows:
+        covered = (row["revenue_year"], row["revenue_month"])
+        if covered in ((2026, 2), (2026, 3)):      # due 03-10 and 04-10, re-stamped 04-21
+            row["create_time"] = "2026-04-21"
+        if covered == (2026, 7):                   # due 08-10, filed early on 08-03
+            row["create_time"] = "2026-08-03"
+    monkeypatch.setattr(client, "_request", mock.Mock(
+        side_effect=lambda params, token: rows if params["dataset"] == "TaiwanStockMonthRevenue"
+        else _fake_api(params, token)))
+    assert "Latest Monthly Revenue (2026-02)" in finmind.get_fundamentals("2330.TW", "2026-03-10")
+    assert "Latest Monthly Revenue (2026-01)" in finmind.get_fundamentals("2330.TW", "2026-03-09")
+    assert "Latest Monthly Revenue (2026-07)" in finmind.get_fundamentals("2330.TW", "2026-08-03")
+    assert "Latest Monthly Revenue (2026-06)" in finmind.get_fundamentals("2330.TW", "2026-08-02")
+
+
+@pytest.mark.unit
+def test_a_revenue_deadline_on_a_weekend_moves_to_monday(api, monkeypatch):
+    rows = [dict(r, create_time=None) for r in _REVENUE]   # no create_time: the deadline alone decides
+    monkeypatch.setattr(client, "_request", mock.Mock(
+        side_effect=lambda params, token: rows if params["dataset"] == "TaiwanStockMonthRevenue"
+        else _fake_api(params, token)))
+    # 2026-10-10 is a Saturday, so September revenue is due on Monday 2026-10-12.
+    assert "Latest Monthly Revenue (2026-08)" in finmind.get_fundamentals("2330.TW", "2026-10-11")
+    assert "Latest Monthly Revenue (2026-09)" in finmind.get_fundamentals("2330.TW", "2026-10-12")
 
 
 @pytest.mark.unit

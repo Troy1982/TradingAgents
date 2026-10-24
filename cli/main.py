@@ -68,6 +68,12 @@ def analyze(
         None, "--html/--no-html",
         help="Save the report as one HTML page too, complete_report.html, without asking (default: yes)",
     ),
+    memory_log: bool | None = typer.Option(
+        None, "--memory-log/--no-memory-log",
+        help="Record the decision in the memory log and settle past ones (default: yes). "
+        "--no-memory-log leaves the log as it is, for a test or baseline run. "
+        "Omit to honor TRADINGAGENTS_MEMORY_LOG_ENABLED.",
+    ),
 ):
     """Run an analysis. This is what a bare `tradingagents` does.
 
@@ -90,7 +96,7 @@ def analyze(
 
     try:
         flags = {"ticker": ticker, "date": date, "analysts": analysts, "save": save, "show": show, "html": html}
-        run_analysis(checkpoint=checkpoint, portfolio=portfolio_context, flags=flags)
+        run_analysis(checkpoint=checkpoint, portfolio=portfolio_context, flags=flags, memory_log=memory_log)
     except _NO_CONSOLE_ERRORS:
         # A terminal with no console buffer cannot host the interactive prompts.
         # Emit one actionable line on stderr instead of a prompt_toolkit

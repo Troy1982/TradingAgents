@@ -391,3 +391,16 @@ def test_the_memory_step_reads_lessons_as_of_the_trade_date_and_settles_once(tmp
 
     assert asked == ["2026-01-20", "2026-01-20"]
     assert (tmp_path / "log.md").read_text() == log_after_first
+
+
+@pytest.mark.unit
+def test_a_run_kept_out_of_the_memory_log_neither_records_nor_settles(tmp_path, monkeypatch, offline):
+    graph = _graph(tmp_path, monkeypatch, ScriptedModel(), memory_log_enabled=False)
+    settled = []
+    monkeypatch.setattr(graph, "settle_all_pending", lambda *a, **k: settled.append(1))
+
+    state, _ = graph.propagate("NVDA", TRADE_DATE)
+
+    assert state["final_trade_decision"].strip()
+    assert settled == []
+    assert not (tmp_path / "log.md").exists()

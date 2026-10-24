@@ -1,10 +1,19 @@
 """Taiwan fundamentals and financial statements from FinMind.
 
-FinMind dates a statement by the period it covers, but Taiwan sets a filing
-deadline for every period, so a past run is served exactly the periods whose
-deadline had passed (``_public_by``), instead of having statements withheld.
-The deadlines used are the later ones that apply to financial companies, so a
-period is never served before every filer had to publish it.
+FinMind dates a statement by the period it covers and records no filing date,
+but Taiwan sets a filing deadline for every period, so a past run is served
+exactly the periods whose deadline had passed (``public_by``), instead of having
+statements withheld. With no filing date to go on, a statement counts as public
+on its deadline even when the company filed it earlier. Financial and insurance
+companies file later than everyone else, so the deadline follows the company's
+FinMind industry; when that cannot be read the later, financial deadline is used,
+so a period is never served early. A deadline on a day the market is closed
+moves to the next day it is open.
+
+Monthly revenue is due by the 10th of the following month (moved the same
+way), and counts as public on the earlier of its ``create_time`` and that
+deadline: FinMind re-stamps rows it re-enters (2383 has February and March 2026
+both stamped 2026-04-21), and older rows carry no ``create_time`` at all.
 
 FinMind's three statements are not shaped alike:
 - the income statement is per quarter;
@@ -23,25 +32,60 @@ from dateutil.relativedelta import relativedelta
 
 from tradingagents.dataflows.date_window import is_historical
 from tradingagents.dataflows.errors import NoMarketDataError
+from tradingagents.dataflows.vendors.finmind.calendar import due_by, next_business_day
 from tradingagents.dataflows.vendors.finmind.client import fetch, require_taiwan_stock
 from tradingagents.dataflows.vendors.finmind.market import load_prices
 
 _QUARTERS_SHOWN = 5
 _YEARS_SHOWN = 4
 
-# Quarter-end month -> (months after the quarter end, day) of the filing deadline.
-_DEADLINES = {3: (2, 31), 6: (2, 31), 9: (2, 30), 12: (3, 31)}
+# Quarter-end month -> (months after the quarter end, day) of the filing deadline:
+# 5/15, 8/14, 11/14 and 3/31 for most companies, 5/31, 8/31, 11/30 and 3/31 for
+# financial and insurance companies.
+_DEADLINES = {3: (2, 15), 6: (2, 14), 9: (2, 14), 12: (3, 31)}
+_FINANCIAL_DEADLINES = {3: (2, 31), 6: (2, 31), 9: (2, 30), 12: (3, 31)}
+
+# Monthly revenue is due by this day of the following month.
+REVENUE_DEADLINE_DAY = 10
+
+# FinMind industry_category words that mark a financial or insurance company.
+_FINANCIAL_INDUSTRY = ("金融", "保險")
 
 # Rows of the cash-flow statement that are balances, not flows over the period.
 _CASH_OPENING = "CashBalancesBeginningOfPeriod"
 _CASH_CLOSING = "CashBalancesEndOfPeriod"
 
 
-def _public_by(period_end: pd.Timestamp) -> pd.Timestamp:
-    """The date by which every company had to file the period ending ``period_end``."""
-    months, day = _DEADLINES[period_end.month]
+def is_financial(stock_id: str) -> bool:
+    """Whether FinMind lists ``stock_id`` as a financial or insurance company.
+
+    True too when the listing cannot be read, so the later deadline applies.
+    The industry is today's; companies seldom move into or out of finance.
+    """
+    try:
+        info = fetch("TaiwanStockInfo", stock_id, "2000-01-01", None)
+    except Exception:  # noqa: BLE001 - the later deadline is the safe answer
+        return True
+    if info.empty or "industry_category" not in info:
+        return True
+    return any(word in str(industry) for industry in info["industry_category"] for word in _FINANCIAL_INDUSTRY)
+
+
+def filing_deadline(period_end: pd.Timestamp, financial: bool) -> pd.Timestamp:
+    """The statutory date by which a company had to file the period ending ``period_end``."""
+    months, day = (_FINANCIAL_DEADLINES if financial else _DEADLINES)[period_end.month]
     month_end = period_end + pd.offsets.MonthEnd(months)
     return month_end.replace(day=min(day, month_end.day))
+
+
+def public_by(period_end: pd.Timestamp, financial: bool) -> pd.Timestamp:
+    """The day a statement counts as public: its deadline, or the next day the market is open."""
+    return next_business_day(filing_deadline(period_end, financial))
+
+
+def revenue_public_by(month: pd.Period) -> pd.Timestamp:
+    """The day revenue for ``month`` was due: the 10th of the next month, or the next day the market is open."""
+    return next_business_day(f"{month + 1}-{REVENUE_DEADLINE_DAY:02d}")
 
 
 def _known_on(as_of_date: str | None) -> str:
@@ -61,7 +105,9 @@ def _statement_frame(dataset: str, stock_id: str, as_of_date: str | None) -> pd.
     wide.index.name = None
     if historical:
         cutoff = pd.Timestamp(as_of_date)
-        wide = wide[[c for c in wide.columns if c.month in _DEADLINES and _public_by(c) <= cutoff]]
+        financial = is_financial(stock_id)
+        wide = wide[[c for c in wide.columns
+                     if c.month in _DEADLINES and due_by(filing_deadline(c, financial), cutoff)]]
     return wide.sort_index(axis=1)
 
 
@@ -109,6 +155,12 @@ def _shaped(kind: str, frame: pd.DataFrame, annual: bool) -> pd.DataFrame:
     return _year_ends(frame) if annual else frame
 
 
+# FinMind names both net income rows after what they belong to.
+_INCOME_NOTE = (
+    "# EquityAttributableToOwnersOfParent = net income attributable to owners of the parent (歸母淨利);"
+    " IncomeAfterTaxes = net income incl. non-controlling interests (稅後淨利). EPS is on the parent's share.\n"
+)
+
 _STATEMENTS = {
     "balance": ("TaiwanStockBalanceSheet", "Balance Sheet"),
     "income": ("TaiwanStockFinancialStatements", "Income Statement"),
@@ -135,6 +187,8 @@ def _statement(kind: str, ticker: str, freq: str, as_of_date: str | None) -> str
     if is_historical(as_of_date):
         header += f"# Point-in-time as of: {as_of_date} (periods past their filing deadline)\n"
     header += "# Currency: TWD\n"
+    if kind == "income":
+        header += _INCOME_NOTE
     return header + shown.to_csv()
 
 
@@ -196,18 +250,20 @@ def _monthly_revenue(stock_id: str, day: str) -> pd.Series:
     """Monthly revenue published by ``day``, indexed by the month it covers.
 
     FinMind's ``date`` is the month of publication; the month covered is
-    ``revenue_year`` / ``revenue_month``. The publish date is ``create_time``,
-    which FinMind leaves empty for older rows: those are taken as published on
-    the 10th of their ``date`` month, the filing deadline. The index runs over
-    every calendar month, so a month never filed reads as missing, not skipped.
+    ``revenue_year`` / ``revenue_month``. A row counts as published on the
+    earlier of its ``create_time`` and its deadline, the 10th of its ``date``
+    month moved past any closure (see the module docstring). The index runs
+    over every calendar month, so a month never filed reads as missing, not
+    skipped.
     """
     rows = fetch("TaiwanStockMonthRevenue", stock_id, "2000-01-01", None)
     if rows.empty or not {"date", "revenue", "revenue_year", "revenue_month"} <= set(rows.columns):
         return pd.Series(dtype=float)
-    created = rows["create_time"].astype("string").str.strip() if "create_time" in rows else None
-    deadline = rows["date"].astype(str).str[:7] + "-10"
-    published = deadline if created is None else created.where(created.fillna("") != "", deadline).str[:10]
-    rows = rows[published <= day]
+    deadline = rows["date"].astype(str).str[:7] + f"-{REVENUE_DEADLINE_DAY:02d}"
+    created = (rows["create_time"].astype("string").str.strip().str[:10].fillna("")
+               if "create_time" in rows else pd.Series("", index=rows.index))
+    filed = (created != "") & (created <= day)
+    rows = rows[filed | deadline.map(lambda d: due_by(d, day))]
     if rows.empty:
         return pd.Series(dtype=float)
     months = pd.PeriodIndex.from_fields(
@@ -336,17 +392,22 @@ def get_fundamentals(ticker: str, as_of_date: str | None = None) -> str:
     debt_to_equity = _ratio(debt, equity)
     balance_date = balance.columns[-1].strftime("%Y-%m-%d") if not balance.empty else "latest"
     fields += [
-        (f"EPS ({ttm_label})", None if eps is None or pd.isna(eps) else f"{eps:.2f} TWD"),
+        (f"EPS ({ttm_label}, on net income attributable to owners of the parent)",
+         None if eps is None or pd.isna(eps) else f"{eps:.2f} TWD"),
         (f"Revenue ({ttm_label})", _twd(revenue)),
         (f"Gross Profit ({ttm_label})", _twd(item(ttm, "GrossProfit"))),
         (f"Operating Income ({ttm_label})", _twd(item(ttm, "OperatingIncome"))),
-        (f"Net Income ({ttm_label})", _twd(net_income)),
+        # 歸母淨利 is the parent's share; IncomeAfterTaxes adds non-controlling interests.
+        (f"Net Income Attributable to Owners of the Parent (歸母淨利, {ttm_label})", _twd(parent_income)),
+        (f"Net Income incl. Non-controlling Interests (稅後淨利, {ttm_label})", _twd(net_income)),
         (f"Gross Margin ({ttm_label})", _ratio(item(ttm, "GrossProfit"), revenue)),
         (f"Operating Margin ({ttm_label})", _ratio(item(ttm, "OperatingIncome"), revenue)),
-        (f"Profit Margin ({ttm_label})", _ratio(net_income, revenue)),
+        (f"Profit Margin ({ttm_label} net income incl. non-controlling interests / revenue)",
+         _ratio(net_income, revenue)),
         (f"Return on Equity ({ttm_label} parent net income / parent equity at {balance_date})",
          _ratio(parent_income, parent_equity)),
-        (f"Return on Assets ({ttm_label} net income / total assets at {balance_date})",
+        (f"Return on Assets ({ttm_label} net income incl. non-controlling interests / total assets"
+         f" at {balance_date})",
          _ratio(net_income, item(latest, "TotalAssets"))),
         ("Debt Ratio (Total Liabilities / Total Assets)",
          None if debt_ratio is None else f"{debt_ratio:.1%}"),
