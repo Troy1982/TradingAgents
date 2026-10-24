@@ -64,6 +64,11 @@ def _hold_posix(handle, wait: bool = True) -> Iterator[bool]:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+# msvcrt.locking reports a held lock as EDEADLOCK (36 on Windows). macOS's errno
+# module has no such name, so the Windows path stays importable and testable there.
+EDEADLOCK = getattr(errno, "EDEADLOCK", 36)
+
+
 @contextmanager
 def _hold_windows(handle, wait: bool = True) -> Iterator[bool]:
     import msvcrt
@@ -74,12 +79,12 @@ def _hold_windows(handle, wait: bool = True) -> Iterator[bool]:
             msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK if wait else msvcrt.LK_NBLCK, 1)
             break
         except OSError as exc:
-            if not wait and exc.errno in (errno.EACCES, errno.EDEADLOCK):
+            if not wait and exc.errno in (errno.EACCES, EDEADLOCK):
                 yield False   # another writer holds it
                 return
             # LK_LOCK gives up after about ten seconds of another writer's hold;
             # any other failure is not a wait.
-            if exc.errno != errno.EDEADLOCK:
+            if exc.errno != EDEADLOCK:
                 raise
     try:
         yield True
