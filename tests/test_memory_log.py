@@ -1118,11 +1118,30 @@ class TestSettlementWindow:
         assert alpha == pytest.approx(raw - (spy_by_day["2026-01-09"] / spy_by_day["2026-01-02"] - 1))
 
     def test_the_outcome_waits_for_the_benchmark_to_trade_through_the_window(self, monkeypatch):
+        # The coin's window ended yesterday; the index has not closed past it yet.
+        today = pd.Timestamp.now().normalize()
+        start = today - pd.Timedelta(days=7)
+        coin = pd.Series([100.0 + i for i in range(7)], index=pd.date_range(start, periods=7, freq="D"))
+        spy = pd.Series([400.0, 401.0], index=[start - pd.Timedelta(days=1), start + pd.Timedelta(days=1)])
+        monkeypatch.setattr(settlement, "get_closes", _closes({"BTC-USD": coin, "SPY": spy}))
+
+        assert settlement.fetch_returns("BTC-USD", f"{start - pd.Timedelta(days=1):%Y-%m-%d}", 5, "SPY") == (
+            None, None, None, None)
+
+    def test_a_benchmark_that_never_covers_a_past_window_is_reported_not_scored(self, monkeypatch):
         coin = pd.Series([100.0 + i for i in range(10)], index=pd.date_range("2026-01-03", periods=10, freq="D"))
         spy = pd.Series([400.0, 401.0, 402.0], index=pd.to_datetime(["2026-01-02", "2026-01-05", "2026-01-06"]))
         monkeypatch.setattr(settlement, "get_closes", _closes({"BTC-USD": coin, "SPY": spy}))
 
-        assert settlement.fetch_returns("BTC-USD", "2026-01-03", 5, "SPY") == (None, None, None, None)
+        with pytest.raises(settlement.BenchmarkUnavailableError, match="alpha not computed"):
+            settlement.fetch_returns("BTC-USD", "2026-01-03", 5, "SPY")
+
+    def test_a_benchmark_with_no_closes_is_reported_not_scored(self, monkeypatch):
+        stock = pd.Series([100.0 + i for i in range(8)], index=pd.bdate_range("2026-10-05", periods=8))
+        monkeypatch.setattr(settlement, "get_closes", _closes({"2383.TW": stock, "^TWII": pd.Series(dtype=float, index=pd.DatetimeIndex([]))}))
+
+        with pytest.raises(settlement.BenchmarkUnavailableError, match="benchmark \\^TWII return unavailable"):
+            settlement.fetch_returns("2383.TW", "2026-10-04", 5, "^TWII")
 
     def test_a_missing_close_is_skipped_not_scored(self, monkeypatch):
         idx = pd.bdate_range("2026-01-05", periods=8)
@@ -1367,3 +1386,23 @@ def test_a_disabled_log_records_nothing(tmp_path):
     log = TradingMemoryLog({"memory_log_path": str(tmp_path / "trading_memory.md"), "memory_log_enabled": False})
     log.store_decision("2383.TW", "2026-10-04", DECISION_SELL)
     assert not (tmp_path / "trading_memory.md").exists()
+
+
+@pytest.mark.unit
+def test_a_missing_benchmark_keeps_the_decision_pending_and_says_why(tmp_path, monkeypatch):
+    log = make_log(tmp_path)
+    log.store_decision("2383.TW", "2026-10-04", DECISION_SELL)
+
+    def no_benchmark(*a, **k):
+        raise settlement.BenchmarkUnavailableError("benchmark ^TWII return unavailable (no closes); alpha not computed")
+
+    monkeypatch.setattr(settlement, "fetch_returns", no_benchmark)
+    reflector = MagicMock()
+
+    done = settlement.settle_pending("2383.TW", log, reflector, {"benchmark_map": {".TW": "^TWII"}})
+
+    assert done.settled == []
+    assert done.failed == [("2383.TW", "2026-10-04",
+                            "benchmark ^TWII return unavailable (no closes); alpha not computed")]
+    reflector.reflect_on_final_decision.assert_not_called()
+    assert [e["pending"] for e in log.load_entries()] == [True]

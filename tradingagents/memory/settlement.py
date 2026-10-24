@@ -11,6 +11,14 @@ from tradingagents.dataflows.vendors.yahoo.market import get_closes
 logger = logging.getLogger(__name__)
 
 
+class BenchmarkUnavailableError(Exception):
+    """The stock's holding window has traded but its benchmark's closes do not cover it.
+
+    Alpha cannot be computed, so the decision is not settled; unlike a window
+    that has not traded yet, this is reported, not silently retried.
+    """
+
+
 def resolve_benchmark(ticker: str, config: dict) -> str:
     """Pick the benchmark ticker for alpha calculation against ``ticker``.
 
@@ -33,6 +41,10 @@ def resolve_benchmark(ticker: str, config: dict) -> str:
         if suffix and ticker_upper.endswith(suffix.upper()):
             return benchmark
     return benchmark_map.get("", "SPY")
+
+
+# How long after a window's exit its benchmark may still be waited for.
+BENCHMARK_GRACE = timedelta(days=7)
 
 
 def _by_day(closes):
@@ -63,8 +75,10 @@ def fetch_returns(
     holding_days, resolution_date)`` — where ``resolution_date`` is the date
     of the last price bar used, i.e. when the outcome became known (#1251) —
     or ``(None, None, None, None)`` when the full holding window has not traded
-    yet (#1169). A failure to get or read the prices is raised, for the caller
-    to report.
+    yet (#1169). When the window has traded but the benchmark's closes do not
+    cover it, BenchmarkUnavailableError is raised rather than an alpha computed
+    from no baseline. A failure to get or read the prices is raised too, for
+    the caller to report.
     """
     start = datetime.strptime(trade_date, "%Y-%m-%d")
     # holding_days counts trading days after the entry session, so ask for the
@@ -89,9 +103,16 @@ def fetch_returns(
     # The window is the stock's own sessions; the benchmark is valued at its
     # last close by each end, so both returns span the same dates even when
     # the calendars differ (a coin trades at weekends, an index does not).
-    # It must have traded through the exit, or its close there may yet move.
+    # It must have traded through the exit, or its close there may yet move:
+    # shortly after the exit that is a wait; past BENCHMARK_GRACE, or with no
+    # close at entry, the benchmark is not coming and the miss is reported.
     if bench.empty or bench.index[0] > entry or bench.index[-1] < exit_:
-        return None, None, None, None
+        if not bench.empty and bench.index[0] <= entry and datetime.now() - exit_ < BENCHMARK_GRACE:
+            return None, None, None, None
+        covered = "no closes" if bench.empty else f"closes {bench.index[0]:%Y-%m-%d} to {bench.index[-1]:%Y-%m-%d}"
+        raise BenchmarkUnavailableError(
+            f"benchmark {benchmark} return unavailable for {entry:%Y-%m-%d} to {exit_:%Y-%m-%d} "
+            f"({covered}); alpha not computed")
 
     raw = float((stock.iloc[holding_days] - stock.iloc[0]) / stock.iloc[0])
     bench_entry, bench_exit = bench.asof(entry), bench.asof(exit_)
@@ -134,6 +155,10 @@ def settle_pending(ticker: str, memory_log, reflector, config: dict, wait: bool 
                 raw, alpha, days, resolution_date = fetch_returns(
                     ticker, entry["date"], config.get("holding_period_days", 5), benchmark=benchmark,
                 )
+            except BenchmarkUnavailableError as exc:
+                logger.warning("Not settling %s on %s: %s", ticker, entry["date"], exc)
+                result.failed.append((ticker, entry["date"], str(exc)))
+                continue
             except Exception as exc:
                 logger.warning("Prices for settling %s on %s were unavailable: %s", ticker, entry["date"], exc)
                 result.failed.append((ticker, entry["date"], f"prices unavailable: {exc}"))
