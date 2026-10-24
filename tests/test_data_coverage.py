@@ -295,3 +295,32 @@ def test_a_lost_revenue_section_is_an_unavailable_critical_gap():
     summary = coverage.coverage_summary([*checks, coverage.check("fundamentals", "get_fundamentals", "ok")],
                                         ["fundamentals"])
     assert summary["capped_by"] == ["monthly_revenue"]
+
+
+@pytest.mark.unit
+def test_an_insufficient_read_scores_half_and_stands_for_its_analyst():
+    checks = [coverage.check("social", "news", "ok", scored=False),
+              coverage.check("social", "stocktwits", "not_applicable"),
+              coverage.check("social", "sentiment", "insufficient", "Insufficient Data: 1 headline")]
+    summary = coverage.coverage_summary(checks, ["social"])
+    assert summary["by_analyst"] == {"social": 0.5}
+    assert {(g["tool"], g["status"]) for g in summary["gaps"]} == {
+        ("stocktwits", "not_applicable"), ("sentiment", "insufficient")}
+
+
+@pytest.mark.unit
+def test_insufficient_and_no_data_are_scored_apart():
+    assert coverage.STATUS_SCORE["insufficient"] == 0.5 and coverage.STATUS_SCORE["no_data"] == 0.0
+    summary = coverage.coverage_summary([coverage.check("social", "sentiment", "insufficient")], ["social"])
+    assert summary["score"] == 0.5
+
+
+@pytest.mark.unit
+def test_the_coverage_block_names_every_status_and_marks_unscored_checks():
+    summary = coverage.coverage_summary(
+        [coverage.check("social", "news", "unavailable", "down", scored=False),
+         coverage.check("social", "sentiment", "insufficient")], ["social"])
+    text = coverage.render_coverage(summary)
+    assert "partial, insufficient 0.5" in text and "no_data" in text and "not_applicable" in text
+    assert "| social | news | unavailable (not scored) | down |" in text
+    assert "| social | sentiment | insufficient |  |" in text

@@ -14,8 +14,9 @@ is told not to read sentiment into it. The read then rests on the headlines
 alone, so they are counted first, de-duplicated (agents/headlines.py): with
 fewer independent stories than ``sentiment_min_items`` the model is not called
 and the report says Insufficient Data with no score (Score: n/a), which the
-debate is told is not a finding. The model's own schema has no such band, so a
-US run reads as before. Both counts head the report either way.
+debate is told is not a finding, and which is recorded as an ``insufficient``
+data check. The model's own schema has no such band, so a US run reads as
+before. Both counts head the report either way.
 
 Each source is trimmed to the analysis window. With a TypeSafe key, the social
 posts are screened by Jev first (see post_screen). These feeds serve recent items
@@ -155,11 +156,17 @@ def create_sentiment_analyst(llm):
         minimum = int(get_config().get("sentiment_min_items", 5))
         if counted is not None and counted.independent < minimum:
             report_text = insufficient_report(ticker, start_date, end_date, counted, minimum)
+            # The read, not the fetch, is this analyst's result: the insufficient
+            # check stands for it and the source checks are listed, not scored.
+            listed = [check(c["analyst"], c["tool"], c["status"],
+                            (c["detail"] + "; " if c["detail"] else "") + "listed, not scored: the sentiment "
+                            "check stands for this analyst", scored=False) if c["status"] != "not_applicable" else c
+                      for c in source_checks]
             return {
                 "messages": [AIMessage(content=report_text)],
                 "sentiment_report": report_text,
-                "data_checks": [*source_checks, check(
-                    "social", "sentiment", "no_data",
+                "data_checks": [*listed, check(
+                    "social", "sentiment", "insufficient",
                     f"Insufficient Data: {counted.describe()}; at least {minimum} needed")],
             }
 

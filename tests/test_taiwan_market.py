@@ -196,8 +196,10 @@ def test_taiwan_sentiment_with_too_few_stories_calls_no_model(monkeypatch):
     assert "5 headlines in the window, 3 independent after de-duplication (2 entry/discussion pages" in report
     assert "not a neutral reading" in report
     gap = [c for c in out["data_checks"] if c["tool"] == "sentiment"]
-    assert gap == [{"analyst": "social", "tool": "sentiment", "status": "no_data",
+    assert gap == [{"analyst": "social", "tool": "sentiment", "status": "insufficient",
                     "detail": gap[0]["detail"]}] and "Insufficient Data" in gap[0]["detail"]
+    news = [c for c in out["data_checks"] if c["tool"] == "news"]
+    assert news[0]["status"] == "ok" and news[0]["scored"] is False
 
 
 @pytest.mark.unit

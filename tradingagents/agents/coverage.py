@@ -8,12 +8,16 @@ Data Coverage step after the analysts turns the checks into one score and level
 that later steps can be held to.
 
 A check is a plain dict, so it survives checkpointing:
-``{"analyst", "tool", "status", "detail"}``.
+``{"analyst", "tool", "status", "detail"}``, plus ``"scored": False`` on a
+check that is listed but left out of the score.
 
 Statuses, and what each counts for in the score:
 - ``ok`` (1): data was served
 - ``empty`` (1): the source was observed and holds nothing (e.g. no news that week)
 - ``partial`` (0.5): served, but older than it should be on the run's date
+- ``insufficient`` (0.5): the analyst reported, but from too little data to
+  read (a Taiwan sentiment with too few independent stories); it stands for the
+  analyst's result, so the source checks it was read from are not scored
 - ``not_applicable`` (left out): the source does not cover this market
 - ``withheld``, ``unavailable``, ``no_data``, ``not_offered``, ``error``,
   ``missing_report`` (0): the data was not there
@@ -33,6 +37,7 @@ STATUS_SCORE = {
     "ok": 1.0,
     "empty": 1.0,
     "partial": 0.5,
+    "insufficient": 0.5,
     "withheld": 0.0,
     "unavailable": 0.0,
     "no_data": 0.0,
@@ -81,8 +86,17 @@ def classify_tool_output(text) -> tuple[str, str]:
     return "ok", ""
 
 
-def check(analyst: str, tool: str, status: str, detail: str = "") -> dict:
-    return {"analyst": analyst, "tool": tool, "status": status, "detail": detail}
+def check(analyst: str, tool: str, status: str, detail: str = "", scored: bool = True) -> dict:
+    """A data check; ``scored=False`` lists it without counting it (see ``insufficient``)."""
+    entry = {"analyst": analyst, "tool": tool, "status": status, "detail": detail}
+    if not scored:
+        entry["scored"] = False
+    return entry
+
+
+# One line naming every status's score, for the coverage block wherever it is shown.
+SCORING = ("Scoring: ok, empty 1; partial, insufficient 0.5; withheld, unavailable, no_data, not_offered, "
+           "error, missing_report 0; not_applicable and checks marked not scored are left out.")
 
 
 # Tools that answer for a Taiwan listing without covering it: whatever they return
@@ -263,13 +277,13 @@ def coverage_summary(checks: Iterable[Mapping], analysts: Iterable[str]) -> dict
     by_analyst = {}
     for analyst in analysts:
         scores = [STATUS_SCORE[c["status"]] for c in checks
-                  if c["analyst"] == analyst and c["status"] in STATUS_SCORE]
+                  if c["analyst"] == analyst and c["status"] in STATUS_SCORE and c.get("scored", True)]
         by_analyst[analyst] = sum(scores) / len(scores) if scores else 1.0
     score = (sum(ANALYST_WEIGHTS[a] * s for a, s in by_analyst.items()) / total_weight) if total_weight else 1.0
     high, medium, critical = _settings()
     level = "high" if score >= high else "medium" if score >= medium else "low"
     capped_by = sorted({c["tool"] for c in checks if c["analyst"] in by_analyst and c["tool"] in critical
-                        and STATUS_SCORE.get(c["status"], 1.0) < 1.0})
+                        and c.get("scored", True) and STATUS_SCORE.get(c["status"], 1.0) < 1.0})
     if capped_by and level == "high":
         level = "medium"
     return {
@@ -289,12 +303,14 @@ def render_coverage(summary: Mapping) -> str:
     ]
     if summary.get("capped_by"):
         lines.append("Capped at medium: critical data not fully served (" + ", ".join(summary["capped_by"]) + ")")
+    lines.append(SCORING)
     gaps = summary["gaps"]
     if gaps:
         lines += ["", "| Analyst | Tool | Status | Detail |", "|---|---|---|---|"]
         for gap in gaps:
             detail = str(gap.get("detail", "")).replace("|", "\\|")
-            lines.append(f"| {gap['analyst']} | {gap['tool']} | {gap['status']} | {detail} |")
+            status = gap["status"] if gap.get("scored", True) else f"{gap['status']} (not scored)"
+            lines.append(f"| {gap['analyst']} | {gap['tool']} | {status} | {detail} |")
     else:
         lines.append("No data gaps.")
     return "\n".join(lines)
