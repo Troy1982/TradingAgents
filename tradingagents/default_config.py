@@ -145,6 +145,10 @@ def build_default_config() -> dict:
         # Increase for longer lookback strategies or to broaden macro coverage;
         # decrease to reduce token usage in agent prompts.
         "news_article_limit": 20,             # max articles per ticker (ticker-news)
+        # A Taiwan listing's sentiment rests on headlines alone: with fewer
+        # independent stories than this (after de-duplication, agents/headlines.py)
+        # the sentiment analyst reports Insufficient Data and calls no model.
+        "sentiment_min_items": 5,
         "global_news_article_limit": 10,      # max articles for global/macro news
         "global_news_lookback_days": 7,       # macro news lookback window
         # For a Taiwan listing, dated items (news) count as known by the

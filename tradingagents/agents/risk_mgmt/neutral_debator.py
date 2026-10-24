@@ -5,6 +5,7 @@ from tradingagents.agents.context import (
     get_portfolio_context_from_state,
     opponent_argument_or_opening,
     report_or_absent,
+    sentiment_report_for_debate,
 )
 
 
@@ -22,7 +23,7 @@ def create_neutral_debator(llm):
         )
 
         market_research_report = report_or_absent(state["market_report"], "market")
-        sentiment_report = report_or_absent(state["sentiment_report"], "sentiment")
+        sentiment_report = sentiment_report_for_debate(state)
         news_report = report_or_absent(state["news_report"], "news")
         fundamentals_report = report_or_absent(state["fundamentals_report"], "fundamentals")
         chip_report = chip_report_line(state)

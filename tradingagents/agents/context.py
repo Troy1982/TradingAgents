@@ -212,6 +212,27 @@ def report_or_absent(text: str, source: str) -> str:
     return f"(No {source} report in this run: it is not available, not an empty finding.)"
 
 
+# The band the sentiment analyst reports when there is too little to read (schemas.INSUFFICIENT_DATA_BAND).
+_INSUFFICIENT_SENTIMENT = "**Insufficient Data**"
+
+
+def sentiment_report_for_debate(state: Mapping[str, Any]) -> str:
+    """The sentiment report as the debaters read it.
+
+    A report of Insufficient Data is replaced by a line saying so: its
+    narrative lists headlines, which a debater would otherwise cite as a
+    sentiment that was never read.
+    """
+    text = report_or_absent(state.get("sentiment_report", ""), "sentiment")
+    first = text.lstrip().splitlines()[0] if text.strip() else ""
+    if _INSUFFICIENT_SENTIMENT in first:
+        return ("(Sentiment: Insufficient Data. Too few independent news stories were published to read a "
+                "sentiment, and the social sources do not cover this listing. It is not a neutral reading: "
+                "do not cite sentiment, the headlines or the absence of sentiment as evidence for or against "
+                "the trade.)")
+    return text
+
+
 def chip_report_line(state: Mapping[str, Any]) -> str:
     """The chip analyst's report as a labelled prompt line, or nothing without one.
 

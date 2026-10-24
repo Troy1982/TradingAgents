@@ -161,10 +161,18 @@ def _run_sentiment(monkeypatch, ticker, news):
     return calls, llm.prompts[-1]
 
 
+# Six different stories, enough for a Taiwan sentiment read.
+_TW_NEWS = "## 2383.TW News (FinMind), from x:\n\n" + "".join(
+    f"### {title} (source: S)\nLink: l\n\n" for title in (
+        "台光電擴產泰國新廠", "外資調升台光電目標價", "CCL漲價潮延續", "AI伺服器拉貨強勁",
+        "台光電九月營收創高", "銅箔基板族群走弱"))
+
+
 @pytest.mark.unit
 def test_taiwan_sentiment_skips_us_social_sources_and_says_so(monkeypatch):
-    calls, prompt = _run_sentiment(monkeypatch, "2383.TW", "## 2383.TW News (FinMind), from x:\n\n### t")
+    calls, prompt = _run_sentiment(monkeypatch, "2383.TW", _TW_NEWS)
     assert calls == []
+    assert "6 headlines in the window, 6 independent after de-duplication" in prompt
     assert prompt.count("此來源不適用台股") >= 3          # both blocks and the rule
     assert "Do not infer any sentiment" in prompt
     assert "News headlines — FinMind" in prompt and "Yahoo Finance, past 7 days" not in prompt
@@ -172,10 +180,44 @@ def test_taiwan_sentiment_skips_us_social_sources_and_says_so(monkeypatch):
 
 
 @pytest.mark.unit
+def test_taiwan_sentiment_with_too_few_stories_calls_no_model(monkeypatch):
+    news = "## 2383.TW News (FinMind), from x:\n\n" + "".join(
+        f"### {title} (source: S)\nLink: l\n\n" for title in (
+            "台光電擴產泰國新廠 - 經濟日報", "台光電擴產泰國新廠 - money.udn.com",   # one story, twice
+            "2383 台光電 - 股市爆料同學會", "2383 台光電 - -202 / -66 / +9 - 股",      # entry pages: one
+            "外資調升台光電目標價"))
+    monkeypatch.setattr(sentiment_analyst.get_news, "func", lambda *a: news)
+    llm = _CapturingLLM()
+    out = sentiment_analyst.create_sentiment_analyst(llm)(
+        {"company_of_interest": "2383.TW", "trade_date": "2026-10-16", "messages": []})
+    assert llm.prompts == []
+    report = out["sentiment_report"]
+    assert report.startswith("**Overall Sentiment:** **Insufficient Data** (Score: n/a)")
+    assert "5 headlines in the window, 3 independent after de-duplication (2 entry/discussion pages" in report
+    assert "not a neutral reading" in report
+    gap = [c for c in out["data_checks"] if c["tool"] == "sentiment"]
+    assert gap == [{"analyst": "social", "tool": "sentiment", "status": "no_data",
+                    "detail": gap[0]["detail"]}] and "Insufficient Data" in gap[0]["detail"]
+
+
+@pytest.mark.unit
+def test_the_story_minimum_follows_the_config(monkeypatch):
+    config = copy.deepcopy(default_config.DEFAULT_CONFIG)
+    config["sentiment_min_items"] = 7
+    set_config(config)
+    monkeypatch.setattr(sentiment_analyst.get_news, "func", lambda *a: _TW_NEWS)
+    llm = _CapturingLLM()
+    out = sentiment_analyst.create_sentiment_analyst(llm)(
+        {"company_of_interest": "2383.TW", "trade_date": "2026-10-16", "messages": []})
+    assert llm.prompts == [] and "Insufficient Data" in out["sentiment_report"]
+
+
+@pytest.mark.unit
 def test_us_sentiment_still_reads_stocktwits_and_reddit(monkeypatch):
     calls, prompt = _run_sentiment(monkeypatch, "NVDA", "## NVDA News, from x:\n\n### t")
     assert calls == ["jev", "stocktwits", "reddit"]
     assert "st posts" in prompt and "rd posts" in prompt
+    assert "independent after de-duplication" not in prompt     # US runs are not counted
     assert "此來源不適用台股" not in prompt
     assert "News headlines — Yahoo Finance, past 7 days" in prompt
     assert NEWS_NUMBERS_RULE in prompt

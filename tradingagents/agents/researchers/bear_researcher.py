@@ -4,6 +4,7 @@ from tradingagents.agents.context import (
     get_language_instruction,
     opponent_argument_or_opening,
     report_or_absent,
+    sentiment_report_for_debate,
 )
 
 
@@ -17,7 +18,7 @@ def create_bear_researcher(llm):
             investment_debate_state.get("current_response", ""), "bull analyst"
         )
         market_research_report = report_or_absent(state["market_report"], "market")
-        sentiment_report = report_or_absent(state["sentiment_report"], "sentiment")
+        sentiment_report = sentiment_report_for_debate(state)
         news_report = report_or_absent(state["news_report"], "news")
         fundamentals_report = report_or_absent(state["fundamentals_report"], "fundamentals")
         chip_report = chip_report_line(state)

@@ -308,6 +308,13 @@ class SentimentBand(StrEnum):
     BEARISH = "Bearish"
 
 
+# The band the sentiment analyst writes, with no score, when a Taiwan listing has
+# too few independent stories to read (see sentiment_analyst). Not a neutral
+# reading. Kept out of SentimentBand so the model can never choose it: a US run
+# reads exactly as before.
+INSUFFICIENT_DATA_BAND = "Insufficient Data"
+
+
 class SentimentReport(BaseModel):
     """Structured sentiment report produced by the Sentiment Analyst.
 

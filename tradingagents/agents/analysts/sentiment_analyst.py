@@ -10,7 +10,12 @@ prompt, so the model reports on data it was given rather than inventing posts:
 
 StockTwits and Reddit cover US listings and crypto only. For a Taiwan symbol
 they are not queried: each block says the source does not apply, and the model
-is told not to read sentiment into it.
+is told not to read sentiment into it. The read then rests on the headlines
+alone, so they are counted first, de-duplicated (agents/headlines.py): with
+fewer independent stories than ``sentiment_min_items`` the model is not called
+and the report says Insufficient Data with no score (Score: n/a), which the
+debate is told is not a finding. The model's own schema has no such band, so a
+US run reads as before. Both counts head the report either way.
 
 Each source is trimmed to the analysis window. With a TypeSafe key, the social
 posts are screened by Jev first (see post_screen). These feeds serve recent items
@@ -33,14 +38,21 @@ from tradingagents.agents.context import (
     get_language_instruction,
 )
 from tradingagents.agents.coverage import check, classify_tool_output
+from tradingagents.agents.headlines import HeadlineCount, count_independent
 from tradingagents.agents.post_screen import jev_screen
-from tradingagents.agents.schemas import SentimentReport, render_sentiment_report
+from tradingagents.agents.schemas import (
+    INSUFFICIENT_DATA_BAND,
+    SentimentReport,
+    render_sentiment_report,
+)
 from tradingagents.agents.structured import (
     NO_EXTERNAL_TOOLS,
     bind_structured,
     invoke_structured_or_freetext,
 )
 from tradingagents.agents.tools import get_news
+from tradingagents.dataflows.config import get_config
+from tradingagents.dataflows.date_window import TAIPEI, as_of_time
 from tradingagents.dataflows.symbols import NOT_FOR_TAIWAN, is_taiwan_symbol
 from tradingagents.dataflows.vendors.reddit import (
     CRYPTO_SUBREDDITS,
@@ -61,6 +73,32 @@ def _news_source(news_block: str) -> str:
     if "(FinMind)" in first:
         return "FinMind (Taiwan financial media; headlines and links only, no summaries)"
     return "Yahoo Finance"
+
+
+def _news_count_line(counted: HeadlineCount, end_date: str, minimum: int) -> str:
+    return (f"**News Items:** {counted.describe()}, published by {end_date} {as_of_time():%H:%M:%S} "
+            f"{TAIPEI}; at least {minimum} independent stories are needed to read a sentiment.")
+
+
+def insufficient_report(ticker: str, start_date: str, end_date: str, counted: HeadlineCount, minimum: int) -> str:
+    """The sentiment report when there is too little to read one: no band to weigh, no score."""
+    stories = "\n".join(f"- {titles[0]}" + (f" (+{len(titles) - 1} similar)" if len(titles) > 1 else "")
+                        for titles in counted.stories) or "- (none)"
+    return "\n".join([
+        f"**Overall Sentiment:** **{INSUFFICIENT_DATA_BAND}** (Score: n/a)",
+        "**Confidence:** Low",
+        _news_count_line(counted, end_date, minimum),
+        "",
+        f"## {ticker} sentiment, {start_date} to {end_date}: insufficient data (資料不足)",
+        "",
+        f"Only {counted.independent} independent news stories were published in the window, fewer than the "
+        f"{minimum} a sentiment read needs, and StockTwits and Reddit do not cover Taiwan-listed stocks. "
+        f"No sentiment is reported: this is not a neutral reading, and it is no evidence for or against "
+        f"the stock.",
+        "",
+        "Stories counted:",
+        stories,
+    ])
 
 
 def _seven_days_back(trade_date: str) -> str:
@@ -108,6 +146,23 @@ def create_sentiment_analyst(llm):
                 ticker, subreddits, start_date=start_date, end_date=end_date, screen=screen
             )
 
+        source_checks = [
+            check("social", source, *classify_tool_output(block))
+            for source, block in (("news", news_block), ("stocktwits", stocktwits_block), ("reddit", reddit_block))
+        ]
+        # A Taiwan read rests on the headlines alone: count the independent stories first.
+        counted = count_independent(news_block) if taiwan else None
+        minimum = int(get_config().get("sentiment_min_items", 5))
+        if counted is not None and counted.independent < minimum:
+            report_text = insufficient_report(ticker, start_date, end_date, counted, minimum)
+            return {
+                "messages": [AIMessage(content=report_text)],
+                "sentiment_report": report_text,
+                "data_checks": [*source_checks, check(
+                    "social", "sentiment", "no_data",
+                    f"Insufficient Data: {counted.describe()}; at least {minimum} needed")],
+            }
+
         system_message = _build_system_message(
             ticker=ticker,
             start_date=start_date,
@@ -117,6 +172,7 @@ def create_sentiment_analyst(llm):
             reddit_block=reddit_block,
             subreddits=subreddits,
             taiwan=taiwan,
+            news_count=_news_count_line(counted, end_date, minimum) if counted is not None else "",
         )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -153,14 +209,14 @@ def create_sentiment_analyst(llm):
             "Sentiment Analyst",
         )
 
+        if counted is not None:
+            band_line, _, rest = report_text.partition("\n")
+            report_text = f"{band_line}\n{_news_count_line(counted, end_date, minimum)}\n{rest}"
+
         return {
             "messages": [AIMessage(content=report_text)],
             "sentiment_report": report_text,
-            "data_checks": [
-                check("social", source, *classify_tool_output(block))
-                for source, block in (("news", news_block), ("stocktwits", stocktwits_block),
-                                      ("reddit", reddit_block))
-            ],
+            "data_checks": source_checks,
         }
 
     return sentiment_analyst_node
@@ -176,6 +232,7 @@ def _build_system_message(
     reddit_block: str,
     subreddits: tuple[str, ...] = DEFAULT_SUBREDDITS,
     taiwan: bool = False,
+    news_count: str = "",
 ) -> str:
     """Assemble the sentiment-analyst system message with structured data blocks."""
     if subreddits == DEFAULT_SUBREDDITS:
@@ -190,7 +247,9 @@ def _build_system_message(
         f"write for each of them that {NOT_FOR_TAIWAN} (this source does not apply to Taiwan "
         f"stocks). Do not infer any sentiment, silence or retail mood from them, do not count "
         f"them in the confidence assessment, and do not use them in cross-source comparisons; "
-        f"the read rests on the news headlines alone."
+        f"the read rests on the news headlines alone. {news_count} Weigh the read by the independent "
+        f"stories, not the raw headline count, and give confidence no higher than medium: headlines "
+        f"alone carry no article text."
     ) if taiwan else ""
     return f"""You are a financial market sentiment analyst. Your task is to produce a comprehensive sentiment report for {ticker} covering the period from {start_date} to {end_date}, drawing on three complementary data sources that have already been collected for you.
 
