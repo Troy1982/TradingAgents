@@ -216,6 +216,12 @@ def build_default_config() -> dict:
         # least volume_spike_ratio times the prior 20-day average, close down at
         # least down_day_pct percent.
         "chip_analysis": {"lookback_days": 20, "volume_spike_ratio": 1.5, "down_day_pct": 3.0},
+        # The Data Coverage step scores the run's tool results from 0 to 1
+        # (agents/coverage.py); a score of at least "high" reads as high
+        # coverage, at least "medium" as medium, anything lower as low. Add a
+        # "critical" list of checks to replace coverage.CRITICAL_CHECKS: one of
+        # them not fully served holds the level at medium at most.
+        "data_coverage": {"high": 0.8, "medium": 0.5},
         # Taiwan peer groups for the peer valuation table, by stock code:
         # {"2383": ["6274", "6213"]}. Peers are read from tradingagents/data/tw_peers.json,
         # then ~/.tradingagents/tw_peers.json, then this key; each replaces the

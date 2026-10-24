@@ -151,6 +151,38 @@ def test_a_full_run_reaches_a_logged_decision(tmp_path, monkeypatch, offline, st
 
 
 @pytest.mark.unit
+def test_every_analysts_tool_results_reach_the_data_coverage_step(tmp_path, monkeypatch, offline):
+    graph = _graph(tmp_path, monkeypatch, ScriptedModel())
+
+    state, _ = graph.propagate("NVDA", TRADE_DATE)
+
+    coverage = state["data_coverage"]
+    # The chip analyst covers Taiwan listings only, so a US run leaves it out.
+    assert set(coverage["by_analyst"]) == {"market", "social", "news", "fundamentals"}
+    tools = {(c["analyst"], c["tool"]) for c in state["data_checks"]}
+    # Each tool is called once, so the side-by-side lists merge without repeats.
+    assert len(state["data_checks"]) == len(tools)
+    assert {("market", "get_stock_data"), ("news", "get_macro_indicators"),
+            ("fundamentals", "get_cashflow"), ("social", "news")} <= tools
+    assert coverage["level"] == "high" and coverage["gaps"] == []
+
+
+@pytest.mark.unit
+def test_a_vendor_outage_is_a_gap_in_the_data_coverage(tmp_path, monkeypatch, offline):
+    outage = "DATA_UNAVAILABLE: no configured vendor could serve get_news right now (down)."
+    for vendor in router.VENDOR_METHODS["get_news"]:
+        monkeypatch.setitem(router.VENDOR_METHODS["get_news"], vendor, lambda *a, **k: outage)
+    graph = _graph(tmp_path, monkeypatch, ScriptedModel())
+
+    state, _ = graph.propagate("NVDA", TRADE_DATE)
+
+    gaps = {(g["analyst"], g["tool"], g["status"]) for g in state["data_coverage"]["gaps"]}
+    # The news analyst's tool call and the sentiment analyst's pre-fetch both miss it.
+    assert {("news", "get_news", "unavailable"), ("social", "news", "unavailable")} <= gaps
+    assert state["data_coverage"]["score"] < 1.0
+
+
+@pytest.mark.unit
 def test_an_interrupted_run_resumes_from_its_checkpoint(tmp_path, monkeypatch, offline):
     model = ScriptedModel(fail_at=12)            # past the analysts, before the decision
     graph = _graph(tmp_path, monkeypatch, model, checkpoint_enabled=True)

@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from tradingagents.agents.analysts import (
@@ -15,6 +15,8 @@ class AnalystNodeSpec:
     agent_node: str
     report_key: str
     tools: tuple = ()
+    # Data checks for the tools left out of a run, given the ticker (see agents/coverage).
+    withheld: Callable[[str], list[dict]] | None = None
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,7 @@ ANALYST_NODE_SPECS: dict[str, AnalystNodeSpec] = {
         agent_node="News Analyst",
         report_key="news_report",
         tools=news_analyst.TOOLS,
+        withheld=news_analyst.withheld_checks,
     ),
     "fundamentals": AnalystNodeSpec(
         key="fundamentals",

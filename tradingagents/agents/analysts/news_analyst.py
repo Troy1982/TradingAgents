@@ -6,6 +6,7 @@ from tradingagents.agents.context import (
     get_instrument_context_from_state,
     get_language_instruction,
 )
+from tradingagents.agents.coverage import check
 from tradingagents.agents.tools import (
     get_global_news,
     get_macro_indicators,
@@ -51,6 +52,17 @@ def offered_tools(ticker: str = "") -> tuple:
     if is_taiwan_symbol(ticker):
         withheld.add(get_prediction_markets.name)
     return tuple(t for t in TOOLS if t.name not in withheld)
+
+
+def withheld_checks(ticker: str = "") -> list[dict]:
+    """A data check for each tool ``offered_tools`` leaves out, saying why."""
+    checks = []
+    if not fred.is_configured():
+        checks.append(check("news", get_macro_indicators.name, "not_offered", "FRED_API_KEY is not set"))
+    if is_taiwan_symbol(ticker):
+        checks.append(check("news", get_prediction_markets.name, "not_applicable",
+                            f"Polymarket lists no Taiwan markets ({NOT_FOR_TAIWAN})"))
+    return checks
 
 
 def _tool_guide(tools: tuple, asset_label: str) -> str:

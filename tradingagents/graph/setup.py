@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from tradingagents.agents import (
+    coverage,
     create_aggressive_debator,
     create_bear_researcher,
     create_bull_researcher,
@@ -23,6 +24,7 @@ from tradingagents.agents import (
 )
 from tradingagents.agents.analysts.turn import WRAP_UP
 from tradingagents.agents.state import AgentState
+from tradingagents.dataflows.symbols import is_taiwan_symbol
 
 from .analyst_execution import build_analyst_execution_plan
 from .conditional_logic import ConditionalLogic
@@ -48,24 +50,65 @@ RISK_ANALYSIS_PATH_MAP = {
 
 def _tools_or_done(state) -> str:
     """Route an analyst's turn: run its tool calls, or finish with its report."""
-    return "tools" if state["messages"][-1].tool_calls else END
+    return "tools" if state["messages"][-1].tool_calls else "record"
+
+
+def _record(spec):
+    """The node that ends an analyst's graph: its tool results as data checks.
+
+    The fundamentals analyst's Taiwan results are also checked for freshness
+    against the monthly revenue and statement filing deadlines.
+    """
+    def record(state) -> dict:
+        ticker = str(state.get("company_of_interest", ""))
+        checks = coverage.tool_checks(spec.key, state["messages"], ticker)
+        if spec.withheld is not None:
+            checks += spec.withheld(ticker)
+        if spec.key == "fundamentals":
+            checks += coverage.freshness_checks(
+                ticker, state.get("trade_date", ""),
+                coverage.latest_tool_output(state["messages"], "get_fundamentals"),
+                statement_outputs=[coverage.latest_tool_output(state["messages"], tool)
+                                   for tool in coverage.STATEMENT_TOOLS[1:]])
+        return {"data_checks": checks}
+
+    return record
+
+
+def _data_coverage(specs):
+    """The step after the analysts: the run's data checks as one score, level and gap list.
+
+    A selected analyst that filed no report counts as a gap of its own. The chip
+    analyst covers Taiwan listings only, so it is left out of any other run.
+    """
+    def data_coverage(state) -> dict:
+        taiwan = is_taiwan_symbol(str(state.get("company_of_interest", "")))
+        analysts = [s.key for s in specs if s.key != "chips" or taiwan]
+        missing = [coverage.check(s.key, s.report_key, "missing_report", "the analyst filed no report")
+                   for s in specs if s.key in analysts and not (state.get(s.report_key) or "").strip()]
+        return {"data_coverage": coverage.coverage_summary([*state.get("data_checks", []), *missing], analysts)}
+
+    return data_coverage
 
 
 def _analyst_graph(spec, agent, max_tool_rounds: int):
     """One analyst as a graph of its own: the model and its tools, on a private message history.
 
-    It returns only its report, so analysts running side by side never write the
-    same key, and its tool calls never reach the other analysts' messages. After
-    ``max_tool_rounds`` rounds of tool calls it is told to write its report, and
-    that turn ends it whatever it answers, so a model that keeps calling tools
-    cannot run the graph into its recursion limit (#1420).
+    It returns only its report and its data checks, so analysts running side by
+    side never write the same key (the checks are added together), and its tool
+    calls never reach the other analysts' messages. After ``max_tool_rounds``
+    rounds of tool calls it is told to write its report, and that turn ends it
+    whatever it answers, so a model that keeps calling tools cannot run the graph
+    into its recursion limit (#1420).
     """
-    output = TypedDict(f"{spec.key.capitalize()}Report", {spec.report_key: str})
+    output = TypedDict(f"{spec.key.capitalize()}Report", {spec.report_key: str, "data_checks": list})
     graph = StateGraph(AgentState, output_schema=output)
     graph.add_node("agent", agent)
+    graph.add_node("record", _record(spec))
     graph.add_edge(START, "agent")
+    graph.add_edge("record", END)
     if not spec.tools:
-        graph.add_edge("agent", END)
+        graph.add_edge("agent", "record")
         return graph.compile()
 
     def calls(messages):
@@ -85,9 +128,9 @@ def _analyst_graph(spec, agent, max_tool_rounds: int):
 
     graph.add_node("tools", ToolNode(list(spec.tools)))
     graph.add_node("wrap_up", wrap_up)
-    graph.add_conditional_edges("agent", _tools_or_done, ["tools", END])
+    graph.add_conditional_edges("agent", _tools_or_done, ["tools", "record"])
     graph.add_conditional_edges("tools", more_or_wrap_up, ["agent", "wrap_up"])
-    graph.add_edge("wrap_up", END)
+    graph.add_edge("wrap_up", "record")
     return graph.compile()
 
 
@@ -157,16 +200,19 @@ class GraphSetup:
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
 
-        # The analysts work at the same time; the research debate starts once
-        # every one of them has filed its report. The memory log settles past
-        # decisions alongside them: only the Portfolio Manager reads its lessons.
+        # The analysts work at the same time; once every one of them has filed
+        # its report, their data is scored and the research debate starts. The
+        # memory log settles past decisions alongside them: only the Portfolio
+        # Manager reads its lessons.
         first_steps = [spec.agent_node for spec in plan.specs]
         if memory_node is not None:
             workflow.add_node("Memory Log", memory_node)
             first_steps.append("Memory Log")
         for node in first_steps:
             workflow.add_edge(START, node)
-        workflow.add_edge(first_steps, "Bull Researcher")
+        workflow.add_node("Data Coverage", _data_coverage(plan.specs))
+        workflow.add_edge(first_steps, "Data Coverage")
+        workflow.add_edge("Data Coverage", "Bull Researcher")
 
         # Both research-debate edges share the complete DEBATE_PATH_MAP (#1088).
         for debate_node in ("Bull Researcher", "Bear Researcher"):

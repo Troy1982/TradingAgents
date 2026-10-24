@@ -1,3 +1,4 @@
+import operator
 from typing import Annotated
 
 from langgraph.graph import MessagesState
@@ -54,6 +55,10 @@ class AgentState(MessagesState):
     news_report: Annotated[str, "Report from the News Analyst on company and world news"]
     fundamentals_report: Annotated[str, "Report from the Fundamentals Analyst"]
     chip_report: Annotated[str, "Report from the Chip Analyst (Taiwan institutional flows, margin, lending)"]
+    # Every analyst's tool results as classified data checks (see agents/coverage);
+    # the analysts run side by side, so their lists are added together.
+    data_checks: Annotated[list, operator.add]
+    data_coverage: Annotated[dict, "Score, level and gaps over data_checks, from the Data Coverage step"]
 
     # researcher team discussion step
     investment_debate_state: Annotated[

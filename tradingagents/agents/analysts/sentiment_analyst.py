@@ -32,6 +32,7 @@ from tradingagents.agents.context import (
     get_instrument_context_from_state,
     get_language_instruction,
 )
+from tradingagents.agents.coverage import check, classify_tool_output
 from tradingagents.agents.post_screen import jev_screen
 from tradingagents.agents.schemas import SentimentReport, render_sentiment_report
 from tradingagents.agents.structured import (
@@ -155,6 +156,11 @@ def create_sentiment_analyst(llm):
         return {
             "messages": [AIMessage(content=report_text)],
             "sentiment_report": report_text,
+            "data_checks": [
+                check("social", source, *classify_tool_output(block))
+                for source, block in (("news", news_block), ("stocktwits", stocktwits_block),
+                                      ("reddit", reddit_block))
+            ],
         }
 
     return sentiment_analyst_node

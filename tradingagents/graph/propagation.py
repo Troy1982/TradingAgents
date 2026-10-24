@@ -35,6 +35,8 @@ class Propagator:
             "trade_date": str(trade_date),
             "past_context": past_context,
             "memory_note": "",
+            "data_checks": [],
+            "data_coverage": {},
             "portfolio_context": portfolio_context,
             "investment_debate_state": InvestDebateState(
                 {
