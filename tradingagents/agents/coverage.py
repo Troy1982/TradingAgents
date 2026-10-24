@@ -143,6 +143,20 @@ STATEMENT_TOOLS = ("get_fundamentals", "get_income_statement", "get_balance_shee
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
+_SECTION_UNAVAILABLE = re.compile(r"^SECTION_UNAVAILABLE (\w+): (.*)$", re.M)
+
+
+def section_checks(fundamentals_output: str | None) -> list[dict]:
+    """An ``unavailable`` check for each section the fundamentals summary could not serve.
+
+    The summary is served whole when one dataset fails, naming the section it
+    lost (``SECTION_UNAVAILABLE monthly_revenue: ...``); each such section is a
+    gap of its own, under the section's name.
+    """
+    return [check("fundamentals", name, "unavailable", detail)
+            for name, detail in _SECTION_UNAVAILABLE.findall(fundamentals_output or "")]
+
+
 def latest_statement_period(output: str | None) -> pd.Timestamp | None:
     """The newest statement period a tool result shows, or None when it shows none."""
     if not output or classify_tool_output(output)[0] != "ok":
@@ -179,7 +193,10 @@ def freshness_checks(
 
     expected_month = expected_revenue_month(trade_date)
     found = _REVENUE_MONTH.search(fundamentals_output or "")
-    if found is None:
+    lost = {name for name, _ in _SECTION_UNAVAILABLE.findall(fundamentals_output or "")}
+    if "monthly_revenue" in lost:
+        pass  # section_checks reports it as unavailable, which says more than "behind"
+    elif found is None:
         served = "get_fundamentals was not called" if not fundamentals_output else "no monthly revenue served"
         checks.append(check("fundamentals", "monthly_revenue", "partial",
                             f"{served}; {expected_month} was due by {trade_date}"))

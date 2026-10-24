@@ -31,7 +31,7 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 
 from tradingagents.dataflows.date_window import is_historical
-from tradingagents.dataflows.errors import NoMarketDataError
+from tradingagents.dataflows.errors import NoMarketDataError, VendorUnavailableError
 from tradingagents.dataflows.vendors.finmind.calendar import due_by, next_business_day
 from tradingagents.dataflows.vendors.finmind.client import fetch, require_taiwan_stock
 from tradingagents.dataflows.vendors.finmind.market import load_prices
@@ -335,6 +335,25 @@ def _monthly_revenue_report(revenue: pd.Series, income: pd.DataFrame) -> tuple[l
     return fields, section
 
 
+# Written in place of a section of the fundamentals summary that could not be
+# had; the coverage step reads it (agents/coverage.py).
+SECTION_UNAVAILABLE = "SECTION_UNAVAILABLE"
+
+
+def _section(name: str, unavailable: list[str], load):
+    """``load()``, or None with the reason noted when its data cannot be had right now.
+
+    An outage or a dataset with no rows costs the summary that section only. A
+    missing token is not caught: no section could be served, so the router
+    moves on to the next vendor.
+    """
+    try:
+        return load()
+    except (VendorUnavailableError, NoMarketDataError) as exc:
+        unavailable.append(f"{SECTION_UNAVAILABLE} {name}: {exc}. Report it as unavailable; do not estimate it.")
+        return None
+
+
 def get_fundamentals(ticker: str, as_of_date: str | None = None) -> str:
     """Valuation, trailing results and balance-sheet ratios for a Taiwan symbol, as of the run's date.
 
@@ -342,23 +361,29 @@ def get_fundamentals(ticker: str, as_of_date: str | None = None) -> str:
     Name and industry are present-day only and are left out of a past run.
     Market cap, beta and forward estimates are not served by FinMind's free
     datasets and are left out rather than estimated.
+
+    Each section (listing, valuation, monthly revenue, prices) that cannot be
+    had is named as unavailable and the rest are served. The statements are the
+    summary's core: when they cannot be had the error is raised, for the router
+    to try the next vendor.
     """
     stock_id = require_taiwan_stock(ticker)
     historical = is_historical(as_of_date)
     day = _known_on(as_of_date)
     day_dt = datetime.strptime(day, "%Y-%m-%d")
     fields: list[tuple[str, object]] = []
+    unavailable: list[str] = []
 
     if not historical:
-        info = fetch("TaiwanStockInfo", stock_id, "2000-01-01", None)
-        if not info.empty:
+        info = _section("listing", unavailable, lambda: fetch("TaiwanStockInfo", stock_id, "2000-01-01", None))
+        if info is not None and not info.empty:
             row = info.iloc[-1]
             fields += [("Name", row.get("stock_name")), ("Industry", row.get("industry_category"))]
 
     per_start = (day_dt - relativedelta(days=30)).strftime("%Y-%m-%d")
-    per = _latest_before(
+    per = _section("valuation", unavailable, lambda: _latest_before(
         fetch("TaiwanStockPER", stock_id, per_start, day if historical else None), "date", day
-    )
+    ))
     if per is not None:
         fields += [
             # TWSE's published figure, on its own trailing-EPS basis, not the TTM span below.
@@ -419,13 +444,16 @@ def get_fundamentals(ticker: str, as_of_date: str | None = None) -> str:
     if not balance.empty:
         fields.append(("Latest Statement Period", balance.columns[-1].strftime("%Y-%m-%d")))
 
-    revenue_fields, revenue_section = _monthly_revenue_report(_monthly_revenue(stock_id, day), income)
+    monthly = _section("monthly_revenue", unavailable, lambda: _monthly_revenue(stock_id, day))
+    revenue_fields, revenue_section = _monthly_revenue_report(monthly, income) if monthly is not None else ([], "")
     fields += revenue_fields
 
-    closes = load_prices(stock_id, ticker, (day_dt - relativedelta(years=1)).strftime("%Y-%m-%d"))
-    closes = closes[closes["Date"] <= day]
-    year = closes[closes["Date"] > day_dt - relativedelta(years=1)]
-    if not year.empty:
+    closes = _section("prices", unavailable, lambda: load_prices(
+        stock_id, ticker, (day_dt - relativedelta(years=1)).strftime("%Y-%m-%d")))
+    if closes is not None:
+        closes = closes[closes["Date"] <= day]
+        year = closes[closes["Date"] > day_dt - relativedelta(years=1)]
+    if closes is not None and not year.empty:
         fields += [
             ("Last Close", f"{closes['Close'].iloc[-1]} TWD ({closes['Date'].iloc[-1]:%Y-%m-%d})"),
             ("52 Week High", f"{year['High'].max()} TWD"),
@@ -441,4 +469,5 @@ def get_fundamentals(ticker: str, as_of_date: str | None = None) -> str:
     header = f"# Company Fundamentals for {ticker.upper()}\n"
     if historical:
         header += f"# Point-in-time as of: {as_of_date}\n"
-    return header + "\n" + "\n".join(lines) + revenue_section
+    missing = "\n\n## Unavailable sections\n" + "\n".join(unavailable) if unavailable else ""
+    return header + "\n" + "\n".join(lines) + revenue_section + missing

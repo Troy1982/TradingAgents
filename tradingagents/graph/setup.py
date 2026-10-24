@@ -65,6 +65,7 @@ def _record(spec):
         if spec.withheld is not None:
             checks += spec.withheld(ticker)
         if spec.key == "fundamentals":
+            checks += coverage.section_checks(coverage.latest_tool_output(state["messages"], "get_fundamentals"))
             checks += coverage.freshness_checks(
                 ticker, state.get("trade_date", ""),
                 coverage.latest_tool_output(state["messages"], "get_fundamentals"),

@@ -515,3 +515,46 @@ def test_a_quarter_with_its_income_statement_out_is_not_derived(api, monkeypatch
     out = finmind.get_fundamentals("2330.TW")
     assert "Latest Monthly Revenue (2026-06)" in out
     assert "derived from monthly revenue" not in out   # Q2 2026 statement is published
+
+
+# --- a section that cannot be had ------------------------------------------------------
+
+_PER = [{"date": "2026-10-06", "stock_id": "2330", "PER": 24.5, "PBR": 6.1, "dividend_yield": 1.8}]
+
+
+def _with(failing_dataset, error):
+    def answer(params, token):
+        if params["dataset"] == failing_dataset:
+            raise error
+        if params["dataset"] == "TaiwanStockPER":
+            return _PER
+        return _fake_api(params, token)
+    return mock.Mock(side_effect=answer)
+
+
+@pytest.mark.unit
+def test_a_failed_revenue_dataset_costs_only_its_section(api, monkeypatch):
+    monkeypatch.setattr(client, "_request", _with(
+        "TaiwanStockMonthRevenue", VendorUnavailableError("FinMind could not serve TaiwanStockMonthRevenue: 503")))
+    out = finmind.get_fundamentals("2330.TW", "2026-10-07")
+    assert "PE Ratio (TWSE-published, 2026-10-06): 24.5" in out                 # valuation still served
+    assert "Revenue (TTM 2025 Q3～2026 Q2): 1,800 TWD" in out                     # and the statements
+    assert "Net Income Attributable to Owners of the Parent (歸母淨利" in out
+    assert "Last Close:" in out                                                  # and prices
+    assert "Latest Monthly Revenue" not in out
+    assert "SECTION_UNAVAILABLE monthly_revenue: FinMind could not serve TaiwanStockMonthRevenue: 503" in out
+
+
+@pytest.mark.unit
+def test_failed_valuation_costs_only_its_section(api, monkeypatch):
+    monkeypatch.setattr(client, "_request", _with("TaiwanStockPER", VendorUnavailableError("PER down")))
+    out = finmind.get_fundamentals("2330.TW", "2026-10-07")
+    assert "SECTION_UNAVAILABLE valuation: PER down" in out and "Latest Monthly Revenue (2026-08)" in out
+
+
+@pytest.mark.unit
+def test_failed_statements_still_raise_for_the_router(api, monkeypatch):
+    monkeypatch.setattr(client, "_request", _with(
+        "TaiwanStockFinancialStatements", VendorUnavailableError("statements down")))
+    with pytest.raises(VendorUnavailableError, match="statements down"):
+        finmind.get_fundamentals("2330.TW", "2026-10-07")

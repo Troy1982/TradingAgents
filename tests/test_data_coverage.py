@@ -283,3 +283,15 @@ def test_statements_alone_still_check_freshness():
     checks = coverage.freshness_checks("2383.TW", "2026-10-17", None, financial=False,
                                        statement_outputs=[_INCOME_STATEMENT])
     assert _statuses(checks) == {"monthly_revenue": "partial", "quarterly_statement": "ok"}
+
+
+@pytest.mark.unit
+def test_a_lost_revenue_section_is_an_unavailable_critical_gap():
+    out = (_fundamentals(revenue_month=None) + "\n\n## Unavailable sections\n"
+           "SECTION_UNAVAILABLE monthly_revenue: FinMind could not serve TaiwanStockMonthRevenue: 503. "
+           "Report it as unavailable; do not estimate it.")
+    checks = coverage.section_checks(out) + coverage.freshness_checks("2383.TW", "2026-10-17", out, financial=False)
+    assert _statuses(checks) == {"monthly_revenue": "unavailable", "quarterly_statement": "ok"}
+    summary = coverage.coverage_summary([*checks, coverage.check("fundamentals", "get_fundamentals", "ok")],
+                                        ["fundamentals"])
+    assert summary["capped_by"] == ["monthly_revenue"]
