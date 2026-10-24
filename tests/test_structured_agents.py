@@ -92,7 +92,7 @@ class TestNullishFloatCoercion:
         assert p.entry_price == 189.5
 
     def test_pm_nullish_price_target_coerces_to_none(self):
-        d = PortfolioDecision(
+        d = PortfolioDecision(confidence="medium", data_limitations="None", 
             rating=PortfolioRating.OVERWEIGHT,
             executive_summary="s",
             investment_thesis="t",
@@ -141,7 +141,7 @@ class TestNullishFloatCoercion:
 @pytest.mark.unit
 class TestRenderResearchPlan:
     def test_required_fields(self):
-        p = ResearchPlan(
+        p = ResearchPlan(confidence="medium", data_limitations="None", 
             recommendation=PortfolioRating.OVERWEIGHT,
             rationale="Bull case carried; tailwinds intact.",
             strategic_actions="Build position over two weeks; cap at 5%.",
@@ -153,7 +153,7 @@ class TestRenderResearchPlan:
 
     def test_all_5_tier_ratings_render(self):
         for rating in PortfolioRating:
-            p = ResearchPlan(
+            p = ResearchPlan(confidence="medium", data_limitations="None", 
                 recommendation=rating,
                 rationale="r",
                 strategic_actions="s",
@@ -299,7 +299,7 @@ def _make_rm_state():
 
 def _structured_rm_llm(captured: dict, plan: ResearchPlan | None = None):
     if plan is None:
-        plan = ResearchPlan(
+        plan = ResearchPlan(confidence="medium", data_limitations="None", 
             recommendation=PortfolioRating.HOLD,
             rationale="Balanced view across both sides.",
             strategic_actions="Hold current position; reassess after earnings.",
@@ -317,7 +317,7 @@ def _structured_rm_llm(captured: dict, plan: ResearchPlan | None = None):
 class TestResearchManagerAgent:
     def test_structured_path_produces_rendered_markdown(self):
         captured = {}
-        plan = ResearchPlan(
+        plan = ResearchPlan(confidence="medium", data_limitations="None", 
             recommendation=PortfolioRating.OVERWEIGHT,
             rationale="Bull case is stronger; AI tailwind intact.",
             strategic_actions="Build position gradually over two weeks.",
@@ -513,7 +513,7 @@ def test_a_price_written_as_a_range_drops_only_that_field(written):
     losing every other field the model got right."""
     from tradingagents.agents.schemas import PortfolioDecision, PortfolioRating
 
-    decision = PortfolioDecision(rating=PortfolioRating.BUY, executive_summary="s",
+    decision = PortfolioDecision(confidence="medium", data_limitations="None", rating=PortfolioRating.BUY, executive_summary="s",
                                  investment_thesis="t", price_target=written)
     assert decision.price_target is None
 
@@ -522,7 +522,7 @@ def test_a_price_written_as_a_range_drops_only_that_field(written):
 def test_a_price_that_is_a_number_survives():
     from tradingagents.agents.schemas import PortfolioDecision, PortfolioRating
 
-    decision = PortfolioDecision(rating=PortfolioRating.BUY, executive_summary="s",
+    decision = PortfolioDecision(confidence="medium", data_limitations="None", rating=PortfolioRating.BUY, executive_summary="s",
                                  investment_thesis="t", price_target="$1,150.25")
     assert decision.price_target == 1150.25
 
@@ -532,7 +532,7 @@ def test_a_field_the_model_did_not_give_says_so():
     """An omitted line and a line never asked for read the same to an analyst."""
     from tradingagents.agents.schemas import PortfolioDecision, PortfolioRating, render_pm_decision
 
-    rendered = render_pm_decision(PortfolioDecision(
+    rendered = render_pm_decision(PortfolioDecision(confidence="medium", data_limitations="None", 
         rating=PortfolioRating.HOLD, executive_summary="s", investment_thesis="t"))
     assert "Price Target" in rendered and "not provided" in rendered.lower()
 

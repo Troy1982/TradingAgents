@@ -37,6 +37,8 @@ class Propagator:
             "memory_note": "",
             "data_checks": [],
             "data_coverage": {},
+            "final_confidence": "",
+            "coverage_cap": {},
             "portfolio_context": portfolio_context,
             "investment_debate_state": InvestDebateState(
                 {

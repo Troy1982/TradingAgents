@@ -125,6 +125,20 @@ class ResearchPlan(BaseModel):
             "portfolio manager apply the actual position."
         ),
     )
+    confidence: Literal["low", "medium", "high"] = Field(
+        description=(
+            "Confidence in this call. It may not exceed the ceiling the Data Coverage "
+            "section allows: 'low' when coverage is low or critical data is missing, "
+            "at most 'medium' when coverage is medium."
+        ),
+    )
+    data_limitations: str = Field(
+        description=(
+            "The data this call lacked, item by item from the Data Coverage section "
+            "(source and what is missing), and how each gap limits the conclusion. "
+            "Write 'None' only when the coverage lists no gaps."
+        ),
+    )
 
 
 def render_research_plan(plan: ResearchPlan) -> str:
@@ -135,6 +149,10 @@ def render_research_plan(plan: ResearchPlan) -> str:
         f"**Rationale**: {plan.rationale}",
         "",
         f"**Strategic Actions**: {plan.strategic_actions}",
+        "",
+        f"**Confidence**: {plan.confidence}",
+        "",
+        f"**Data Limitations**: {plan.data_limitations}",
     ])
 
 
@@ -258,6 +276,20 @@ class PortfolioDecision(BaseModel):
         default=None,
         description="Optional recommended holding period, e.g. '3-6 months'.",
     )
+    confidence: Literal["low", "medium", "high"] = Field(
+        description=(
+            "Confidence in this call. It may not exceed the ceiling the Data Coverage "
+            "section allows: 'low' when coverage is low or critical data is missing, "
+            "at most 'medium' when coverage is medium."
+        ),
+    )
+    data_limitations: str = Field(
+        description=(
+            "The data this call lacked, item by item from the Data Coverage section "
+            "(source and what is missing), and how each gap limits the conclusion. "
+            "Write 'None' only when the coverage lists no gaps."
+        ),
+    )
 
     @field_validator("price_target", mode="before")
     @classmethod
@@ -285,6 +317,8 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     target = decision.price_target if decision.price_target is not None else "not provided"
     parts.extend(["", f"**Price Target**: {target}"])
     parts.extend(["", f"**Time Horizon**: {decision.time_horizon or 'not provided'}"])
+    parts.extend(["", f"**Confidence**: {decision.confidence}"])
+    parts.extend(["", f"**Data Limitations**: {decision.data_limitations}"])
     return "\n".join(parts)
 
 

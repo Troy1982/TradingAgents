@@ -9,6 +9,7 @@ run produces the same on-disk report tree a CLI run does.
 from datetime import datetime
 from pathlib import Path
 
+from tradingagents.agents.coverage import render_coverage
 from tradingagents.agents.rating import run_rating
 from tradingagents.dataflows.router import vendor_chain_for
 from tradingagents.dataflows.symbols import NOT_FOR_TAIWAN
@@ -26,6 +27,11 @@ def _header(ticker: str, final_state: dict, settings: dict | None) -> str:
         lines.append(f"- Analysis date: {final_state['trade_date']}")
     if final_state.get("final_trade_decision"):
         lines.append(f"- Rating: {run_rating(final_state)}")
+    if final_state.get("final_confidence"):
+        lines.append(f"- Confidence: {final_state['final_confidence']}")
+    coverage = final_state.get("data_coverage")
+    if coverage:
+        lines.append(f"- Data coverage: {coverage['level']} (score {coverage['score']:.2f})")
     lines.append(f"- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     if settings:
         s = settings.get
@@ -80,9 +86,26 @@ _SECTIONS = (
 )
 
 
+def coverage_section(final_state: dict) -> str:
+    """The run's data coverage and what the coverage cap made, or would make, of the decision."""
+    coverage = final_state.get("data_coverage")
+    if not coverage:
+        return ""
+    text = render_coverage(coverage)
+    cap = final_state.get("coverage_cap")
+    if cap:
+        text += (f"\n\nModel's call: {cap['model_rating']}, confidence {cap['model_confidence']}. "
+                 f"Final: {final_state.get('final_rating', cap['rating'])}, "
+                 f"confidence {final_state.get('final_confidence', cap['confidence'])}.\n\n{cap['note']}")
+    return text
+
+
 def _report_parts(final_state: dict) -> list[tuple[str, str, list[tuple[str, str, str]]]]:
     """The sections with something to say: (heading, folder, [(agent, file, text)])."""
     parts = []
+    coverage = coverage_section(final_state)
+    if coverage:
+        parts.append(("0. Data Coverage", "0_coverage", [("Data Coverage", "coverage.md", coverage)]))
     for heading, folder, agents in _SECTIONS:
         written = []
         for agent, filename, path in agents:

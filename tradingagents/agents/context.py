@@ -258,3 +258,28 @@ def get_portfolio_context_from_state(state: Mapping[str, Any]) -> str:
         "holdings or cash, so do not assume a flat book; give direction and "
         "sizing guidance in terms the caller can apply to their own position."
     )
+
+
+def coverage_context(state: Mapping[str, Any]) -> str:
+    """The run's data coverage as a prompt section for the managers, with the confidence it allows.
+
+    Empty for a state without the Data Coverage step (a bare programmatic state),
+    so the prompt does not claim a coverage nobody measured.
+    """
+    from tradingagents.agents.coverage import render_coverage
+    from tradingagents.agents.rating import confidence_ceiling
+    from tradingagents.dataflows.config import get_config
+
+    summary = state.get("data_coverage")
+    if not summary:
+        return ""
+    ceiling, rating_capped, reasons = confidence_ceiling(summary, get_config().get("data_coverage") or {})
+    cap = (" Because " + "; ".join(reasons) + ", a Buy or Sell call will be moved to Overweight or "
+           "Underweight when the coverage cap is applied.") if rating_capped else ""
+    return (
+        "**Data Coverage** (measured from the tools' own results, not from the reports):\n"
+        f"{render_coverage(summary)}\n\n"
+        f"Your confidence may be at most **{ceiling}** for this coverage.{cap} In Data Limitations, "
+        "name each gap above that bears on the call (the source and what is missing) and how it limits "
+        "the conclusion; sources marked not_applicable do not cover this market and are not gaps.\n"
+    )

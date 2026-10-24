@@ -93,7 +93,7 @@ def _structured_pm_llm(captured: dict, decision: PortfolioDecision | None = None
     prompt and returns a real PortfolioDecision (so render_pm_decision works).
     """
     if decision is None:
-        decision = PortfolioDecision(
+        decision = PortfolioDecision(confidence="medium", data_limitations="None", 
             rating=PortfolioRating.HOLD,
             executive_summary="Hold the position; await catalyst.",
             investment_thesis="Balanced view; neither side carried the debate.",
@@ -790,7 +790,7 @@ class TestPortfolioManagerInjection:
         downstream consumers (memory log, signal processor, CLI display)
         can parse without any extra LLM call."""
         captured = {}
-        decision = PortfolioDecision(
+        decision = PortfolioDecision(confidence="medium", data_limitations="None", 
             rating=PortfolioRating.OVERWEIGHT,
             executive_summary="Build position gradually over the next two weeks.",
             investment_thesis="AI capex cycle remains intact; institutional flows constructive.",
@@ -817,7 +817,10 @@ class TestPortfolioManagerInjection:
         llm.invoke.return_value = MagicMock(content=plain_response)
         pm_node = create_portfolio_manager(llm)
         result = pm_node(_make_pm_state())
-        assert result["final_trade_decision"] == plain_response
+        assert result["final_trade_decision"].startswith(plain_response)
+        assert result["final_rating"] == "Sell"
+        # The prose states no confidence: unknown, not low.
+        assert result["final_confidence"] == "unparsed"
 
     # get_past_context ordering and limits
 

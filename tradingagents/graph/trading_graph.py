@@ -449,6 +449,8 @@ class TradingAgentsGraph:
             "chip_report": final_state.get("chip_report", ""),
             "data_checks": final_state.get("data_checks", []),
             "data_coverage": final_state.get("data_coverage", {}),
+            "final_confidence": final_state.get("final_confidence", ""),
+            "coverage_cap": final_state.get("coverage_cap", {}),
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],

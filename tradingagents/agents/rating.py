@@ -115,3 +115,93 @@ def run_rating(final_state: dict) -> str:
 def is_review(signal: str) -> bool:
     """Whether a signal is the non-tradeable REVIEW sentinel (#1170)."""
     return signal == RATING_REVIEW
+
+
+# --- confidence, and the cap data coverage puts on a decision ----------------------------
+
+CONFIDENCE_LEVELS: tuple[str, ...] = ("low", "medium", "high")
+
+# Written when a decision states no confidence the program can read (the free-text
+# path): unknown, not low, so it is never mistaken for a coverage cap.
+CONFIDENCE_UNPARSED = "unparsed"
+
+_CONFIDENCE_RE = re.compile(r"confidence[\s*_]*[:：][\s*_]*(low|medium|high)\b", re.IGNORECASE)
+
+
+def parse_confidence(text: str) -> str:
+    """The decision's ``Confidence: low|medium|high`` line, or ``unparsed``."""
+    m = _CONFIDENCE_RE.search(unicodedata.normalize("NFKC", text or ""))
+    return m.group(1).lower() if m else CONFIDENCE_UNPARSED
+
+
+def confidence_ceiling(coverage: dict | None, settings: dict | None = None) -> tuple[str, bool, list[str]]:
+    """``(highest confidence allowed, whether the rating is capped, why)`` for a run's coverage.
+
+    The rating is capped when coverage is low or a critical check was not fully
+    served (``capped_by``); confidence is then at most low. Medium coverage with
+    nothing critical missing allows at most medium and leaves the rating alone.
+    No coverage (a run without the Data Coverage step) caps nothing.
+    """
+    settings = settings or {}
+    if not coverage:
+        return "high", False, []
+    reasons = []
+    if coverage.get("level") == "low" and settings.get("cap_on_low", True):
+        reasons.append(f"data coverage is low (score {coverage.get('score')})")
+    if coverage.get("capped_by") and settings.get("cap_on_critical", True):
+        reasons.append("critical data not fully served: " + ", ".join(coverage["capped_by"]))
+    if reasons:
+        return "low", True, reasons
+    if coverage.get("level") == "medium":
+        return "medium", False, [f"data coverage is medium (score {coverage.get('score')})"]
+    return "high", False, []
+
+
+def apply_coverage_cap(rating: str, confidence: str, coverage: dict | None, settings: dict | None = None) -> dict:
+    """What the coverage cap makes of a decision's rating and confidence.
+
+    Rules (config ``data_coverage``): coverage low or a critical check missing
+    moves Buy to Overweight and Sell to Underweight (``rating_cap``) and holds
+    confidence at low; medium coverage holds confidence at medium. An
+    ``unparsed`` confidence stays unparsed: it is unknown, and the cap is not
+    written over it. ``enforce`` (default false) only records the change as a
+    shadow; true applies it. Returns the model's and the capped values, whether
+    the cap changed anything, whether it was applied, the reasons, and a note
+    for the decision text.
+    """
+    settings = settings or {}
+    ceiling, cap_rating, reasons = confidence_ceiling(coverage, settings)
+    mapping = settings.get("rating_cap") or {"Buy": "Overweight", "Sell": "Underweight"}
+    capped_rating = mapping.get(rating, rating) if cap_rating else rating
+    capped_confidence = confidence
+    if confidence in CONFIDENCE_LEVELS and CONFIDENCE_LEVELS.index(confidence) > CONFIDENCE_LEVELS.index(ceiling):
+        capped_confidence = ceiling
+    changed = (capped_rating, capped_confidence) != (rating, confidence)
+    enforced = bool(settings.get("enforce", False))
+    result = {
+        "model_rating": rating, "model_confidence": confidence,
+        "capped_rating": capped_rating, "capped_confidence": capped_confidence,
+        "ceiling": ceiling, "rating_capped": cap_rating, "changed": changed,
+        "enforced": enforced, "reasons": reasons,
+    }
+    result["rating"] = capped_rating if enforced else rating
+    result["confidence"] = capped_confidence if enforced else confidence
+    result["note"] = _cap_note(result)
+    return result
+
+
+def _cap_note(cap: dict) -> str:
+    """One line for the decision text. It never writes "rating" before a colon or dash,
+    so the rating parser cannot read it as the decision's rating."""
+    why = "; ".join(cap["reasons"]) or "data coverage allows any call"
+    moves = []
+    if cap["capped_rating"] != cap["model_rating"]:
+        moves.append(f"the call from {cap['model_rating']} to {cap['capped_rating']}")
+    if cap["capped_confidence"] != cap["model_confidence"]:
+        moves.append(f"confidence from {cap['model_confidence']} to {cap['capped_confidence']}")
+    if not moves:
+        return f"**Coverage Cap**: no change ({why}; confidence ceiling {cap['ceiling']})"
+    change = " and ".join(moves)
+    if cap["enforced"]:
+        return f"**Coverage Cap**: applied, moving {change} ({why})"
+    return f"**Coverage Cap**: not applied (shadow mode); if applied it would move {change} ({why})"

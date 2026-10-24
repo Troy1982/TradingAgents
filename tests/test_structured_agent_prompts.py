@@ -64,7 +64,7 @@ def test_research_manager_prompt_states_constraint():
     captured = {}
     llm = _capturing_llm(
         captured,
-        ResearchPlan(
+        ResearchPlan(confidence="medium", data_limitations="None", 
             recommendation=PortfolioRating.BUY, rationale="x", strategic_actions="y"
         ),
     )
@@ -85,7 +85,7 @@ def test_portfolio_manager_prompt_states_constraint():
     captured = {}
     llm = _capturing_llm(
         captured,
-        PortfolioDecision(
+        PortfolioDecision(confidence="medium", data_limitations="None", 
             rating=PortfolioRating.HOLD,
             executive_summary="x",
             investment_thesis="y",

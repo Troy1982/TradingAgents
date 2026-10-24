@@ -225,7 +225,18 @@ def build_default_config() -> dict:
         # coverage, at least "medium" as medium, anything lower as low. Add a
         # "critical" list of checks to replace coverage.CRITICAL_CHECKS: one of
         # them not fully served holds the level at medium at most.
-        "data_coverage": {"high": 0.8, "medium": 0.5},
+        #
+        # The coverage cap on the final decision (agents/rating.apply_coverage_cap):
+        # coverage low (cap_on_low) or critical data missing (cap_on_critical)
+        # moves a rating by rating_cap and holds confidence at low; medium
+        # coverage holds confidence at medium. With enforce false (the default)
+        # the decision only records what the cap would change; true applies it.
+        "data_coverage": {
+            "high": 0.8, "medium": 0.5,
+            "enforce": False,
+            "cap_on_low": True, "cap_on_critical": True,
+            "rating_cap": {"Buy": "Overweight", "Sell": "Underweight"},
+        },
         # Taiwan peer groups for the peer valuation table, by stock code:
         # {"2383": ["6274", "6213"]}. Peers are read from tradingagents/data/tw_peers.json,
         # then ~/.tradingagents/tw_peers.json, then this key; each replaces the
