@@ -68,3 +68,44 @@ def test_a_backtest_sweep_does_not_change_the_settings_it_was_given(tmp_path, mo
     backtest.run_backtest(["2383.TW"], [], default_config.DEFAULT_CONFIG)
     assert seen["config"]["data_coverage"]["enforce"] is True
     assert default_config.DEFAULT_CONFIG["data_coverage"]["enforce"] is False
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("raw, expected", [("true", True), ("1", True), ("false", False)])
+def test_the_coverage_cap_switch_reads_from_the_environment(monkeypatch, raw, expected):
+    monkeypatch.setenv("TRADINGAGENTS_COVERAGE_ENFORCE", raw)
+    config = default_config.build_default_config()
+    assert config["data_coverage"]["enforce"] is expected
+    assert config["data_coverage"]["high"] == 0.8          # the rest of the nested dict is kept
+
+
+@pytest.mark.unit
+def test_a_misspelled_coverage_cap_switch_fails_loudly(monkeypatch):
+    monkeypatch.setenv("TRADINGAGENTS_COVERAGE_ENFORCE", "treu")
+    with pytest.raises(ValueError, match="TRADINGAGENTS_COVERAGE_ENFORCE"):
+        default_config.build_default_config()
+
+
+
+class _Stop(Exception):
+    pass
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("flag, expected", [(True, True), (False, False), (None, False)])
+def test_the_cli_flag_reaches_the_graph_and_only_this_run(monkeypatch, flag, expected):
+    from cli.models import AnalystType
+    seen = {}
+
+    def graph(analysts, config, **kwargs):
+        seen["enforce"] = config["data_coverage"]["enforce"]
+        raise _Stop
+
+    monkeypatch.setattr(cli_run, "get_user_selections",
+                        lambda flags: {**_SELECTIONS, "analysts": [AnalystType.MARKET]})
+    monkeypatch.setattr(cli_run, "_warn_missing_fred_key", lambda *a: None)
+    monkeypatch.setattr(cli_run, "TradingAgentsGraph", graph)
+    with pytest.raises(_Stop):
+        cli_run.run_analysis(enforce_coverage_cap=flag, flags={})
+    assert seen["enforce"] is expected
+    assert default_config.DEFAULT_CONFIG["data_coverage"]["enforce"] is False

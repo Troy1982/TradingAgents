@@ -26,7 +26,8 @@ calls: list = []
 def test_no_arguments_still_runs_an_analysis(runner):
     assert runner.invoke(m.app, []).exit_code == 0
     no_flags = {"ticker": None, "date": None, "analysts": None, "save": None, "show": None, "html": None}
-    assert calls == [("analysis", {"checkpoint": None, "portfolio": None, "flags": no_flags, "memory_log": None})]
+    assert calls == [("analysis", {"checkpoint": None, "portfolio": None, "flags": no_flags, "memory_log": None,
+                                   "enforce_coverage_cap": None})]
 
 
 @pytest.mark.unit
@@ -236,3 +237,9 @@ def test_a_failure_message_with_brackets_is_printed_as_text(runner, monkeypatch)
     monkeypatch.setattr(chatgpt_auth, "sign_in", refuse)
     result = runner.invoke(m.app, ["login", "chatgpt"])
     assert result.exit_code == 1 and "[/bogus]" in result.output
+
+
+@pytest.mark.unit
+def test_enforce_coverage_cap_reaches_the_run(runner):
+    assert runner.invoke(m.app, ["--enforce-coverage-cap"]).exit_code == 0
+    assert calls[0][1]["enforce_coverage_cap"] is True

@@ -74,6 +74,11 @@ def analyze(
         "--no-memory-log leaves the log as it is, for a test or baseline run. "
         "Omit to honor TRADINGAGENTS_MEMORY_LOG_ENABLED.",
     ),
+    enforce_coverage_cap: bool | None = typer.Option(
+        None, "--enforce-coverage-cap/--no-enforce-coverage-cap",
+        help="Apply the data coverage cap to the final rating and confidence (default: no, the "
+        "decision only records what the cap would change). Omit to honor TRADINGAGENTS_COVERAGE_ENFORCE.",
+    ),
 ):
     """Run an analysis. This is what a bare `tradingagents` does.
 
@@ -96,7 +101,8 @@ def analyze(
 
     try:
         flags = {"ticker": ticker, "date": date, "analysts": analysts, "save": save, "show": show, "html": html}
-        run_analysis(checkpoint=checkpoint, portfolio=portfolio_context, flags=flags, memory_log=memory_log)
+        run_analysis(checkpoint=checkpoint, portfolio=portfolio_context, flags=flags, memory_log=memory_log,
+                     enforce_coverage_cap=enforce_coverage_cap)
     except _NO_CONSOLE_ERRORS:
         # A terminal with no console buffer cannot host the interactive prompts.
         # Emit one actionable line on stderr instead of a prompt_toolkit

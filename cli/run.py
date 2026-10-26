@@ -138,7 +138,8 @@ def _build_run_config(selections: dict, checkpoint: bool | None) -> dict:
     return config
 
 
-def run_analysis(checkpoint: bool | None = None, portfolio=None, flags=None, memory_log: bool | None = None):
+def run_analysis(checkpoint: bool | None = None, portfolio=None, flags=None, memory_log: bool | None = None,
+                 enforce_coverage_cap: bool | None = None):
     flags = flags or {}
     # With no terminal nothing can answer a prompt: name every question still
     # open before any model is called, rather than stopping at the first one.
@@ -156,6 +157,8 @@ def run_analysis(checkpoint: bool | None = None, portfolio=None, flags=None, mem
     # --memory-log/--no-memory-log overrides only when given, like --checkpoint.
     if memory_log is not None:
         config["memory_log_enabled"] = memory_log
+    if enforce_coverage_cap is not None:
+        config["data_coverage"]["enforce"] = enforce_coverage_cap
     _warn_missing_fred_key(selections, config)
 
     stats_handler = StatsCallbackHandler()

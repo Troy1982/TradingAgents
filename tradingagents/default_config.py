@@ -27,6 +27,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_MAX_TOKENS":           "max_tokens",
     "TRADINGAGENTS_AS_OF_TIME":           "as_of_time",
     "TRADINGAGENTS_MEMORY_LOG_ENABLED":   "memory_log_enabled",
+    # A dotted key names a nested setting.
+    "TRADINGAGENTS_COVERAGE_ENFORCE":     "data_coverage.enforce",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
     # interactive choice, which is skipped when the matching var is set.
@@ -64,13 +66,20 @@ def _coerce(value: str, reference):
 
 
 def _apply_env_overrides(config: dict) -> dict:
-    """Apply TRADINGAGENTS_* env vars to the config dict in-place."""
+    """Apply TRADINGAGENTS_* env vars to the config dict in-place.
+
+    A dotted key (``data_coverage.enforce``) sets a value inside a nested dict.
+    """
     for env_var, key in _ENV_OVERRIDES.items():
         raw = os.environ.get(env_var)
         if raw is None or raw == "":
             continue
+        *parents, leaf = key.split(".")
+        target = config
+        for parent in parents:
+            target = target.setdefault(parent, {})
         try:
-            config[key] = _coerce(raw, config.get(key))
+            target[leaf] = _coerce(raw, target.get(leaf))
         except ValueError as exc:
             raise ValueError(f"Invalid value for {env_var}: {exc}") from exc
     return config
