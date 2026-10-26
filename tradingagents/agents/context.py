@@ -31,9 +31,12 @@ def get_language_instruction(labelled_lines: bool = True) -> str:
     portfolio manager — so a non-English run produces a fully localized
     report rather than a mix of languages.
 
-    ``labelled_lines=False`` leaves out the rating lines. Analysts pass it:
-    they do not rate the trade, and naming the lines invites them to append
-    a "**Rating**:" and "FINAL TRANSACTION PROPOSAL:" line to their report.
+    ``labelled_lines=False`` leaves out the rating lines. The analysts, the
+    bull and bear researchers and the risk debaters pass it: they argue, they
+    do not rate the trade, and naming the lines invites them to append a
+    "**Rating**:" and "FINAL TRANSACTION PROPOSAL:" line of their own. The
+    research manager, trader and portfolio manager, whose lines the program
+    reads, keep them.
     """
     from tradingagents.dataflows.config import get_config
     lang = get_config().get("output_language", "English")

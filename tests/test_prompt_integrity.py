@@ -142,3 +142,62 @@ def test_a_report_that_was_never_produced_says_so(module, factory):
     prompt = " ".join(seen)
     assert "not part of this run" in prompt or "not available" in prompt, prompt[:400]
     assert "RSI 61" in prompt  # the report that does exist is still passed through
+
+
+ARGUERS = [
+    "tradingagents.agents.analysts.chip_analyst",
+    "tradingagents.agents.researchers.bull_researcher",
+    "tradingagents.agents.researchers.bear_researcher",
+    "tradingagents.agents.risk_mgmt.aggressive_debator",
+    "tradingagents.agents.risk_mgmt.conservative_debator",
+    "tradingagents.agents.risk_mgmt.neutral_debator",
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("module", ARGUERS)
+def test_the_chip_analyst_researchers_and_debaters_are_not_asked_for_rating_lines(module):
+    """A Taiwan calibration batch found debaters ending their turns with
+    "**Rating**: Aggressive Risk-Managed Sell" and FINAL TRANSACTION PROPOSAL lines."""
+    import inspect
+
+    src = inspect.getsource(importlib.import_module(module))
+    assert "get_language_instruction(labelled_lines=False)" in src
+    assert "get_language_instruction()" not in src
+
+
+def _debate_state():
+    return {
+        "company_of_interest": "2383.TW", "trade_date": "2026-10-16", "instrument_context": "",
+        "market_report": "m", "sentiment_report": "s", "news_report": "n", "fundamentals_report": "f",
+        "trader_investment_plan": "plan",
+        "investment_debate_state": {"history": "", "bull_history": "", "bear_history": "",
+                                    "current_response": "", "count": 0},
+        "risk_debate_state": {"history": "", "aggressive_history": "", "conservative_history": "",
+                              "neutral_history": "", "latest_speaker": "", "current_aggressive_response": "",
+                              "current_conservative_response": "", "current_neutral_response": "", "count": 0},
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("module, factory", [
+    ("tradingagents.agents.researchers.bull_researcher", "create_bull_researcher"),
+    ("tradingagents.agents.researchers.bear_researcher", "create_bear_researcher"),
+    ("tradingagents.agents.risk_mgmt.aggressive_debator", "create_aggressive_debator"),
+    ("tradingagents.agents.risk_mgmt.conservative_debator", "create_conservative_debator"),
+    ("tradingagents.agents.risk_mgmt.neutral_debator", "create_neutral_debator"),
+])
+def test_a_non_english_debate_prompt_names_no_rating_lines(module, factory):
+    from tradingagents.dataflows.config import set_config
+
+    set_config({"output_language": "Traditional Chinese"})
+    seen = []
+
+    class _LLM:
+        def invoke(self, prompt):
+            seen.append(prompt)
+            return type("R", (), {"content": "argument"})()
+
+    getattr(importlib.import_module(module), factory)(_LLM())(_debate_state())
+    assert seen and "Traditional Chinese" in seen[0]
+    assert "**Rating**" not in seen[0] and "FINAL TRANSACTION PROPOSAL" not in seen[0]

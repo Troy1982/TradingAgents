@@ -65,7 +65,7 @@ def create_chip_analyst(llm):
             " as unavailable, say so rather than estimating."
             " Make sure to append a Markdown table at the end of the report to organize key points in the report,"
             " organized and easy to read."
-            + get_language_instruction()
+            + get_language_instruction(labelled_lines=False)
         )
 
         prompt = ChatPromptTemplate.from_messages(
