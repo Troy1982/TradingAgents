@@ -19,6 +19,8 @@ Statuses, and what each counts for in the score:
   read (a Taiwan sentiment with too few independent stories); it stands for the
   analyst's result, so the source checks it was read from are not scored
 - ``not_applicable`` (left out): the source does not cover this market
+- ``late_publication`` (left out): served, but filed later than expected (a
+  monthly revenue ``create_time`` past its cut-off); listed so the timing is seen
 - ``withheld``, ``unavailable``, ``no_data``, ``not_offered``, ``error``,
   ``missing_report`` (0): the data was not there
 """
@@ -45,7 +47,7 @@ STATUS_SCORE = {
     "error": 0.0,
     "missing_report": 0.0,
 }
-GAP_STATUSES = frozenset(STATUS_SCORE) - {"ok", "empty"} | {"not_applicable"}
+GAP_STATUSES = frozenset(STATUS_SCORE) - {"ok", "empty"} | {"not_applicable", "late_publication"}
 
 # How much each analyst's data weighs in the score; an analyst not in the run is left out.
 ANALYST_WEIGHTS = {
@@ -96,7 +98,7 @@ def check(analyst: str, tool: str, status: str, detail: str = "", scored: bool =
 
 # One line naming every status's score, for the coverage block wherever it is shown.
 SCORING = ("Scoring: ok, empty 1; partial, insufficient 0.5; withheld, unavailable, no_data, not_offered, "
-           "error, missing_report 0; not_applicable and checks marked not scored are left out.")
+           "error, missing_report 0; not_applicable, late_publication and checks marked not scored are left out.")
 
 
 # Tools that answer for a Taiwan listing without covering it: whatever they return
@@ -169,6 +171,15 @@ def section_checks(fundamentals_output: str | None) -> list[dict]:
     """
     return [check("fundamentals", name, "unavailable", detail)
             for name, detail in _SECTION_UNAVAILABLE.findall(fundamentals_output or "")]
+
+
+_REVENUE_LATE = re.compile(r"^REVENUE_LATE (\d{4}-\d{2}): (.*)$", re.M)
+
+
+def revenue_timing_checks(fundamentals_output: str | None) -> list[dict]:
+    """A ``late_publication`` note for each monthly revenue filed later than expected."""
+    return [check("fundamentals", f"revenue_timing {month}", "late_publication", detail)
+            for month, detail in _REVENUE_LATE.findall(fundamentals_output or "")]
 
 
 def latest_statement_period(output: str | None) -> pd.Timestamp | None:

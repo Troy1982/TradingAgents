@@ -1,4 +1,4 @@
-"""Point-in-time rules on recorded FinMind data for 2383 (台光電), with no request made.
+"""Point-in-time rules on recorded FinMind data for 2383 (台光電) and 2881 (富邦金), with no request made.
 
 The files under tests/data/finmind are FinMind's own answers, trimmed to the
 rows these cases need: monthly revenue (with the empty and re-stamped
@@ -35,9 +35,8 @@ def _recorded(params, token):
         return _load("TaiwanStockTradingDate_2026") if params["start_date"].startswith("2026") else []
     if dataset == "TaiwanStockNews":
         return NEWS.get(params["start_date"], [])
-    if params.get("data_id") != "2383":
-        return []
-    rows = _load(f"2383_{dataset}") if (DATA / f"2383_{dataset}.json").exists() else []
+    name = f"{params.get('data_id')}_{dataset}"
+    rows = _load(name) if (DATA / f"{name}.json").exists() else []
     end = params.get("end_date")
     return [r for r in rows if not end or r["date"] <= end]
 
@@ -54,8 +53,8 @@ def recorded(monkeypatch, tmp_path):
     set_config(copy.deepcopy(default_config.DEFAULT_CONFIG))
 
 
-def _latest_month(day):
-    return str(_monthly_revenue("2383", day).dropna().index[-1])
+def _latest_month(day, stock="2383"):
+    return str(_monthly_revenue(stock, day).dropna().index[-1])
 
 
 # --- monthly revenue ------------------------------------------------------------------
@@ -118,3 +117,99 @@ def test_the_cutoff_follows_the_configured_as_of_time(recorded):
     config["as_of_time"] = "13:30:00"
     set_config(config)
     assert article["title"] not in finmind.get_news("2383.TW", day, day)
+
+
+# --- a financial company: published after the 10th ----------------------------------------
+
+@pytest.mark.unit
+def test_the_recorded_2881_rows_are_late_filings():
+    rows = {(r["revenue_year"], r["revenue_month"]): r["create_time"] for r in _load("2881_TaiwanStockMonthRevenue")}
+    assert rows[(2026, 9)] == "2026-10-16"       # due 2026-10-12; 富邦金 published 10-15
+    assert rows[(2026, 2)] == "2026-04-21"       # the market-wide re-entry
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("day, month", [
+    ("2026-10-12", "2026-08"), ("2026-10-13", "2026-08"), ("2026-10-14", "2026-08"), ("2026-10-15", "2026-08"),
+    ("2026-10-16", "2026-09"),
+])
+def test_2881_september_revenue_is_read_when_published_not_on_the_10th(recorded, day, month):
+    assert _latest_month(day, "2881") == month
+
+
+@pytest.mark.unit
+def test_2881_february_revenue_re_entered_in_april_is_public_ten_days_after_its_deadline(recorded):
+    # Due 2026-03-10; financial allowance 10 days -> 2026-03-20 (a Friday); re-stamped 04-21.
+    assert _latest_month("2026-03-19", "2881") == "2026-01"
+    assert _latest_month("2026-03-20", "2881") == "2026-02"
+
+
+@pytest.mark.unit
+def test_a_general_companys_re_entry_still_counts_on_its_deadline(recorded):
+    assert _latest_month("2026-03-15") == "2026-02"      # 2383: due 03-10, re-stamped 04-21
+
+
+@pytest.mark.unit
+def test_the_allowance_follows_the_config(recorded):
+    from tradingagents.dataflows.config import get_config, set_config
+    set_config({**get_config(), "revenue_publication": {"financial_allowance_days": 0}})
+    assert _latest_month("2026-10-12", "2881") == "2026-09"   # no allowance: back to the deadline
+
+
+# --- filings later than expected are named -------------------------------------------------
+
+def _rows(stock, created_by_month):
+    """Revenue rows for 2026-01..09, each with the create_time given (by covered month)."""
+    rows = []
+    for m in range(1, 10):
+        published = f"2026-{m + 1:02d}-01"
+        rows.append({"date": published, "stock_id": stock, "revenue": 100 + m, "revenue_month": m,
+                     "revenue_year": 2026, "create_time": created_by_month.get(m, f"2026-{m + 1:02d}-08")})
+    return rows
+
+
+def _serve(monkeypatch, stock, rows, industry):
+    def answer(params, token):
+        if params["dataset"] == "TaiwanStockTradingDate":
+            return _load("TaiwanStockTradingDate_2026")
+        if params["dataset"] == "TaiwanStockMonthRevenue":
+            return rows
+        if params["dataset"] == "TaiwanStockInfo":
+            return [{"stock_id": stock, "stock_name": "x", "industry_category": industry, "type": "twse"}]
+        return []
+    monkeypatch.setattr(client, "_request", mock.Mock(side_effect=answer))
+
+
+@pytest.mark.unit
+def test_late_filings_beyond_what_is_expected_are_named_and_logged(recorded, monkeypatch, caplog):
+    from tradingagents.dataflows.vendors.finmind.fundamentals import revenue_timing_notes
+    # A financial company 3 days late (within 10) and one 14 days late (past it).
+    _serve(monkeypatch, "2888", _rows("2888", {8: "2026-09-13", 9: "2026-10-26"}), "金融保險")
+    with caplog.at_level("WARNING"):
+        notes = revenue_timing_notes("2888", "2026-10-30")
+    assert notes == ["REVENUE_LATE 2026-09: create_time 2026-10-26 is 14 days after its deadline 2026-10-12, "
+                     "past the 10 expected; read as published on 2026-10-26"]
+    assert "REVENUE_LATE 2026-09" in caplog.text
+
+
+@pytest.mark.unit
+def test_a_general_company_one_day_late_or_re_entered_is_not_named(recorded, monkeypatch):
+    from tradingagents.dataflows.vendors.finmind.fundamentals import revenue_timing_notes
+    # 1 day late (FinMind's next-morning stamp), a known re-entry date, and 3 days late.
+    _serve(monkeypatch, "1402", _rows("1402", {7: "2026-08-11", 2: "2026-04-21", 9: "2026-10-15"}), "紡織纖維")
+    notes = revenue_timing_notes("1402", "2026-10-30")
+    assert [n.split(":")[0] for n in notes] == ["REVENUE_LATE 2026-09"]
+    assert "is 3 days after its deadline 2026-10-12, past the 1 expected" in notes[0]
+
+
+@pytest.mark.unit
+def test_the_summary_and_the_coverage_name_a_late_filing(recorded, monkeypatch):
+    from tradingagents.agents import coverage
+    _serve(monkeypatch, "2888", _rows("2888", {9: "2026-10-26"}), "金融保險")
+    out = finmind.get_fundamentals("2888.TW", "2026-10-30")
+    assert "## Revenue timing notes\nREVENUE_LATE 2026-09:" in out
+    [note] = coverage.revenue_timing_checks(out)
+    assert note["status"] == "late_publication" and note["tool"] == "revenue_timing 2026-09"
+    summary = coverage.coverage_summary([note, coverage.check("fundamentals", "get_fundamentals", "ok")],
+                                        ["fundamentals"])
+    assert summary["score"] == 1.0 and summary["gaps"] == [note]      # listed, not scored

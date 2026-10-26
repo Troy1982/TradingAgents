@@ -245,6 +245,18 @@ def build_default_config() -> dict:
         # sharing data_cache_dir; past it a request is refused as rate-limited
         # without being sent. The free plan allows 600; 0 turns the count off.
         "finmind_requests_per_hour": 500,
+        # When FinMind's monthly revenue counts as public (finmind/fundamentals.py):
+        # the earlier of create_time and the deadline (the 10th, moved to a
+        # trading day), plus financial_allowance_days for financial and insurance
+        # companies, which publish two to seven days late. A later create_time is
+        # flagged: beyond the allowance for a financial company, beyond
+        # general_late_warning_days for any other, unless it is a known
+        # market-wide re-entry date.
+        "revenue_publication": {
+            "financial_allowance_days": 10,
+            "general_late_warning_days": 1,
+            "known_backfill_dates": ["2026-04-20", "2026-04-21"],
+        },
         # The Data Coverage step scores the run's tool results from 0 to 1
         # (agents/coverage.py); a score of at least "high" reads as high
         # coverage, at least "medium" as medium, anything lower as low. Add a

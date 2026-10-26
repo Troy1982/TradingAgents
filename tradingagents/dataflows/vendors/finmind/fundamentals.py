@@ -11,9 +11,17 @@ so a period is never served early. A deadline on a day the market is closed
 moves to the next day it is open.
 
 Monthly revenue is due by the 10th of the following month (moved the same
-way), and counts as public on the earlier of its ``create_time`` and that
-deadline: FinMind re-stamps rows it re-enters (2383 has February and March 2026
-both stamped 2026-04-21), and older rows carry no ``create_time`` at all.
+way). A row counts as public on the earlier of its ``create_time`` and its
+cut-off: the deadline for most companies, the deadline plus an allowance
+(config ``revenue_publication.financial_allowance_days``, 10) for financial and
+insurance companies, whose holding companies and insurers publish their monthly
+results two to seven days after the 10th. The earlier of the two, because
+FinMind re-stamps rows it re-enters market-wide (February and March 2026 were
+all stamped 2026-04-20/21) and most rows before 2026 carry no ``create_time``,
+so those count as public on their cut-off: later than many were actually
+filed, which makes a backtest conservative, never early. A ``create_time`` later
+than its cut-off, beyond what is expected, is named in the summary
+(``REVENUE_LATE``) and logged rather than silently trusted.
 
 FinMind's three statements are not shaped alike:
 - the income statement is per quarter;
@@ -25,6 +33,7 @@ FinMind's three statements are not shaped alike:
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 
 import pandas as pd
@@ -35,6 +44,8 @@ from tradingagents.dataflows.errors import NoMarketDataError, VendorUnavailableE
 from tradingagents.dataflows.vendors.finmind.calendar import due_by, next_business_day
 from tradingagents.dataflows.vendors.finmind.client import fetch, require_taiwan_stock
 from tradingagents.dataflows.vendors.finmind.market import load_prices
+
+logger = logging.getLogger(__name__)
 
 _QUARTERS_SHOWN = 5
 _YEARS_SHOWN = 4
@@ -246,24 +257,50 @@ def _pct(value) -> str:
     return "" if value is None or pd.isna(value) else f"{value:+.2%}"
 
 
+def _revenue_settings() -> dict:
+    from tradingagents.dataflows.config import get_config
+
+    return {"financial_allowance_days": 10, "general_late_warning_days": 1, "known_backfill_dates": [],
+            **(get_config().get("revenue_publication") or {})}
+
+
+def _revenue_rows(stock_id: str) -> tuple[pd.DataFrame, pd.Series, pd.Series, int]:
+    """The revenue rows, their raw deadlines and create_times, and the allowance in days."""
+    rows = fetch("TaiwanStockMonthRevenue", stock_id, "2000-01-01", None)
+    if rows.empty or not {"date", "revenue", "revenue_year", "revenue_month"} <= set(rows.columns):
+        return pd.DataFrame(), pd.Series(dtype=str), pd.Series(dtype=str), 0
+    deadline = rows["date"].astype(str).str[:7] + f"-{REVENUE_DEADLINE_DAY:02d}"
+    created = (rows["create_time"].astype("string").str.strip().str[:10].fillna("")
+               if "create_time" in rows else pd.Series("", index=rows.index))
+    allowance = int(_revenue_settings()["financial_allowance_days"]) if is_financial(stock_id) else 0
+    return rows, deadline, created, allowance
+
+
+def _cut_off_passed(deadline: str, allowance: int, day: str) -> bool:
+    """Whether the cut-off (the deadline moved past closures, plus ``allowance`` days,
+    moved again) falls on or before ``day``."""
+    if allowance <= 0:
+        return due_by(deadline, day)
+    raw = pd.Timestamp(deadline)
+    if raw + pd.Timedelta(days=allowance + 30) <= pd.Timestamp(day):
+        return True   # long past, however it moved: no calendar needed
+    return due_by(next_business_day(raw) + pd.Timedelta(days=allowance), day)
+
+
 def _monthly_revenue(stock_id: str, day: str) -> pd.Series:
     """Monthly revenue published by ``day``, indexed by the month it covers.
 
     FinMind's ``date`` is the month of publication; the month covered is
     ``revenue_year`` / ``revenue_month``. A row counts as published on the
-    earlier of its ``create_time`` and its deadline, the 10th of its ``date``
-    month moved past any closure (see the module docstring). The index runs
-    over every calendar month, so a month never filed reads as missing, not
-    skipped.
+    earlier of its ``create_time`` and its cut-off (see the module docstring).
+    The index runs over every calendar month, so a month never filed reads as
+    missing, not skipped.
     """
-    rows = fetch("TaiwanStockMonthRevenue", stock_id, "2000-01-01", None)
-    if rows.empty or not {"date", "revenue", "revenue_year", "revenue_month"} <= set(rows.columns):
+    rows, deadline, created, allowance = _revenue_rows(stock_id)
+    if rows.empty:
         return pd.Series(dtype=float)
-    deadline = rows["date"].astype(str).str[:7] + f"-{REVENUE_DEADLINE_DAY:02d}"
-    created = (rows["create_time"].astype("string").str.strip().str[:10].fillna("")
-               if "create_time" in rows else pd.Series("", index=rows.index))
     filed = (created != "") & (created <= day)
-    rows = rows[filed | deadline.map(lambda d: due_by(d, day))]
+    rows = rows[filed | deadline.map(lambda d: _cut_off_passed(d, allowance, day))]
     if rows.empty:
         return pd.Series(dtype=float)
     months = pd.PeriodIndex.from_fields(
@@ -271,6 +308,37 @@ def _monthly_revenue(stock_id: str, day: str) -> pd.Series:
     revenue = pd.Series(rows["revenue"].astype(float).to_numpy(), index=months)
     revenue = revenue[~revenue.index.duplicated(keep="last")].sort_index()
     return revenue.reindex(pd.period_range(revenue.index.min(), revenue.index.max(), freq="M"))
+
+
+def revenue_timing_notes(stock_id: str, day: str) -> list[str]:
+    """``REVENUE_LATE`` lines for revenue filed later than expected, in the year before ``day``.
+
+    Expected: by the cut-off for a financial company; by the deadline plus
+    ``general_late_warning_days`` (FinMind stamps a filing made on the
+    deadline's night the next morning) for any other, unless the stamp is a
+    known market-wide re-entry (``known_backfill_dates``). Each is logged too.
+    """
+    settings = _revenue_settings()
+    rows, deadline, created, allowance = _revenue_rows(stock_id)
+    if rows.empty:
+        return []
+    known = set(map(str, settings["known_backfill_dates"]))
+    grace = allowance if allowance > 0 else int(settings["general_late_warning_days"])
+    start = (pd.Timestamp(day) - pd.DateOffset(years=1)).strftime("%Y-%m-%d")
+    notes = []
+    for i in rows.index:
+        stamp, due = created[i], deadline[i]
+        if not stamp or not (start <= due <= day) or stamp > day or stamp in known:
+            continue
+        expected = next_business_day(due) + pd.Timedelta(days=grace)
+        if pd.Timestamp(stamp) > expected:
+            covered = f"{int(rows.at[i, 'revenue_year'])}-{int(rows.at[i, 'revenue_month']):02d}"
+            late = (pd.Timestamp(stamp) - next_business_day(due)).days
+            note = (f"REVENUE_LATE {covered}: create_time {stamp} is {late} days after its deadline "
+                    f"{next_business_day(due):%Y-%m-%d}, past the {grace} expected; read as published on {stamp}")
+            logger.warning("%s %s", stock_id, note)
+            notes.append(note)
+    return notes
 
 
 def _monthly_revenue_report(revenue: pd.Series, income: pd.DataFrame) -> tuple[list, str]:
@@ -447,6 +515,9 @@ def get_fundamentals(ticker: str, as_of_date: str | None = None) -> str:
     monthly = _section("monthly_revenue", unavailable, lambda: _monthly_revenue(stock_id, day))
     revenue_fields, revenue_section = _monthly_revenue_report(monthly, income) if monthly is not None else ([], "")
     fields += revenue_fields
+    timing = _section("revenue_timing", unavailable, lambda: revenue_timing_notes(stock_id, day)) or []
+    if timing:
+        revenue_section += "\n\n## Revenue timing notes\n" + "\n".join(timing)
 
     closes = _section("prices", unavailable, lambda: load_prices(
         stock_id, ticker, (day_dt - relativedelta(years=1)).strftime("%Y-%m-%d")))
