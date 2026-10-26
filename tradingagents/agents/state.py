@@ -65,6 +65,7 @@ class AgentState(MessagesState):
         InvestDebateState, "Current state of the debate on if to invest or not"
     ]
     investment_plan: Annotated[str, "Investment plan from the Research Manager"]
+    research_coverage_cap: Annotated[dict, "What the coverage cap would make of the plan (never applied to it)"]
 
     trader_investment_plan: Annotated[str, "Transaction proposal from the Trader"]
 

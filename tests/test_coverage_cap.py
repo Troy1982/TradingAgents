@@ -186,7 +186,8 @@ def test_the_report_shows_the_coverage_and_what_the_cap_did(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert "- Confidence: unparsed" in text and "- Data coverage: medium (score 0.86)" in text
     assert "## 0. Data Coverage" in text and "partial, insufficient 0.5" in text
-    assert "Model's call: Sell, confidence unparsed. Final: Sell, confidence unparsed." in text
+    assert ("Portfolio Manager: the model's call was Sell, confidence unparsed. "
+            "Final: Sell, confidence unparsed.") in text
     assert "not applied (shadow mode)" in text
     assert "Data Coverage" in (tmp_path / "complete_report.html").read_text(encoding="utf-8")
 
@@ -197,3 +198,40 @@ def test_the_cli_shows_a_decision_with_an_unparsed_confidence(capsys):
     display_complete_report(_final_state())
     out = capsys.readouterr().out
     assert "Coverage Cap" in out and "Underweight" in out
+
+
+# --- the Research Manager's plan: recorded, never capped ----------------------------------
+
+@pytest.mark.unit
+def test_the_research_plan_is_never_capped_but_the_report_says_what_the_cap_would_do(tmp_path):
+    from tradingagents.agents.managers.research_manager import create_research_manager
+    from tradingagents.agents.schemas import ResearchPlan
+    _enforce(True)                     # even when the final decision's cap is applied
+    plan = ResearchPlan(recommendation=PortfolioRating.SELL, rationale="Bear case.", strategic_actions="Exit.",
+                        confidence="high", data_limitations="Monthly revenue unavailable.")
+    llm = MagicMock()
+    llm.with_structured_output.return_value.invoke.return_value = plan
+    state = {"company_of_interest": "NVDA", "trade_date": "2026-10-17", "data_coverage": CRITICAL,
+             "investment_debate_state": {"history": "h", "bull_history": "", "bear_history": "",
+                                         "current_response": "", "count": 2}}
+    out = create_research_manager(llm)(state)
+
+    assert "**Recommendation**: Sell" in out["investment_plan"] and "**Confidence**: high" in out["investment_plan"]
+    cap = out["research_coverage_cap"]
+    assert (cap["model_rating"], cap["capped_rating"], cap["enforced"]) == ("Sell", "Underweight", False)
+
+    report = {**_final_state(), "research_coverage_cap": cap}
+    text = write_report_tree(report, "2383.TW", tmp_path, html=False).read_text(encoding="utf-8")
+    assert ("Research Manager: recommended Sell, confidence high. The coverage cap is never applied to the "
+            "research plan; if applied, it would move the call from Sell to Underweight and confidence from "
+            "high to low (critical data not fully served: monthly_revenue).") in text
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("text, rating", [
+    ("**Recommendation**: Overweight\n\n**Rationale**: r", "Overweight"),
+    ("Recommendation：sell", "Sell"), ("No call here.", "REVIEW"),
+])
+def test_the_plans_recommendation_is_read_from_its_label(text, rating):
+    from tradingagents.agents.rating import parse_recommendation
+    assert parse_recommendation(text) == rating

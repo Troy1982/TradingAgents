@@ -39,6 +39,7 @@ class Propagator:
             "data_coverage": {},
             "final_confidence": "",
             "coverage_cap": {},
+            "research_coverage_cap": {},
             "portfolio_context": portfolio_context,
             "investment_debate_state": InvestDebateState(
                 {

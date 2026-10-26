@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from tradingagents.agents.coverage import render_coverage
-from tradingagents.agents.rating import run_rating
+from tradingagents.agents.rating import cap_moves, run_rating
 from tradingagents.dataflows.router import vendor_chain_for
 from tradingagents.dataflows.symbols import NOT_FOR_TAIWAN
 
@@ -92,10 +92,19 @@ def coverage_section(final_state: dict) -> str:
     if not coverage:
         return ""
     text = render_coverage(coverage)
+    research = final_state.get("research_coverage_cap")
+    if research:
+        moves = cap_moves(research)
+        why = "; ".join(research["reasons"]) or "data coverage allows any call"
+        effect = (f"if applied, it would move {moves} ({why})" if moves
+                  else f"applied, it would change nothing ({why}; confidence ceiling {research['ceiling']})")
+        text += (f"\n\nResearch Manager: recommended {research['model_rating']}, confidence "
+                 f"{research['model_confidence']}. The coverage cap is never applied to the research plan; "
+                 f"{effect}.")
     cap = final_state.get("coverage_cap")
     if cap:
-        text += (f"\n\nModel's call: {cap['model_rating']}, confidence {cap['model_confidence']}. "
-                 f"Final: {final_state.get('final_rating', cap['rating'])}, "
+        text += (f"\n\nPortfolio Manager: the model's call was {cap['model_rating']}, confidence "
+                 f"{cap['model_confidence']}. Final: {final_state.get('final_rating', cap['rating'])}, "
                  f"confidence {final_state.get('final_confidence', cap['confidence'])}.\n\n{cap['note']}")
     return text
 

@@ -128,6 +128,16 @@ CONFIDENCE_UNPARSED = "unparsed"
 _CONFIDENCE_RE = re.compile(r"confidence[\s*_]*[:：][\s*_]*(low|medium|high)\b", re.IGNORECASE)
 
 
+_RECOMMENDATION_RE = re.compile(r"recommendation[\s*_]*[:\uff1a][\s*_]*(\w+)", re.IGNORECASE)
+
+
+def parse_recommendation(text: str) -> str:
+    """The research plan's ``Recommendation: X`` (a 5-tier rating), or ``REVIEW``."""
+    m = _RECOMMENDATION_RE.search(unicodedata.normalize("NFKC", text or ""))
+    value = m.group(1).capitalize() if m else ""
+    return value if value.lower() in _RATING_SET else RATING_REVIEW
+
+
 def parse_confidence(text: str) -> str:
     """The decision's ``Confidence: low|medium|high`` line, or ``unparsed``."""
     m = _CONFIDENCE_RE.search(unicodedata.normalize("NFKC", text or ""))
@@ -190,18 +200,24 @@ def apply_coverage_cap(rating: str, confidence: str, coverage: dict | None, sett
     return result
 
 
-def _cap_note(cap: dict) -> str:
-    """One line for the decision text. It never writes "rating" before a colon or dash,
-    so the rating parser cannot read it as the decision's rating."""
-    why = "; ".join(cap["reasons"]) or "data coverage allows any call"
+def cap_moves(cap: dict) -> str:
+    """What the cap changes, in words ("the call from Sell to Underweight and confidence
+    from high to low"), or an empty string when it changes nothing."""
     moves = []
     if cap["capped_rating"] != cap["model_rating"]:
         moves.append(f"the call from {cap['model_rating']} to {cap['capped_rating']}")
     if cap["capped_confidence"] != cap["model_confidence"]:
         moves.append(f"confidence from {cap['model_confidence']} to {cap['capped_confidence']}")
-    if not moves:
+    return " and ".join(moves)
+
+
+def _cap_note(cap: dict) -> str:
+    """One line for the decision text. It never writes "rating" before a colon or dash,
+    so the rating parser cannot read it as the decision's rating."""
+    why = "; ".join(cap["reasons"]) or "data coverage allows any call"
+    change = cap_moves(cap)
+    if not change:
         return f"**Coverage Cap**: no change ({why}; confidence ceiling {cap['ceiling']})"
-    change = " and ".join(moves)
     if cap["enforced"]:
         return f"**Coverage Cap**: applied, moving {change} ({why})"
     return f"**Coverage Cap**: not applied (shadow mode); if applied it would move {change} ({why})"

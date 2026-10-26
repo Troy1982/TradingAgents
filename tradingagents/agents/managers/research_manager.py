@@ -7,6 +7,7 @@ from tradingagents.agents.context import (
     get_instrument_context_from_state,
     get_language_instruction,
 )
+from tradingagents.agents.rating import apply_coverage_cap, parse_confidence, parse_recommendation
 from tradingagents.agents.schemas import ResearchPlan, render_research_plan
 from tradingagents.agents.structured import (
     NO_EXTERNAL_TOOLS,
@@ -14,6 +15,7 @@ from tradingagents.agents.structured import (
     invoke_structured_or_freetext,
 )
 from tradingagents.agents.tools import get_peer_valuation
+from tradingagents.dataflows.config import get_config
 from tradingagents.dataflows.symbols import is_taiwan_symbol
 
 
@@ -92,6 +94,12 @@ Write these sections, in this order, starting with the recommendation on its own
             "Research Manager",
         )
 
+        # What the coverage cap would make of the plan, for the report only: the
+        # cap is never applied to the plan, which the trader reads as written.
+        research_cap = apply_coverage_cap(
+            parse_recommendation(investment_plan), parse_confidence(investment_plan),
+            state.get("data_coverage"), {**(get_config().get("data_coverage") or {}), "enforce": False})
+
         new_investment_debate_state = {
             "history": investment_debate_state.get("history", ""),
             "bear_history": investment_debate_state.get("bear_history", ""),
@@ -103,6 +111,7 @@ Write these sections, in this order, starting with the recommendation on its own
         return {
             "investment_debate_state": new_investment_debate_state,
             "investment_plan": investment_plan,
+            "research_coverage_cap": research_cap,
         }
 
     return research_manager_node
