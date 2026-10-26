@@ -229,7 +229,9 @@ def build_default_config() -> dict:
             # overview and insider tools, which SEC EDGAR does not serve, from Yahoo.
             "fundamental_data": "finmind,sec_edgar,yfinance",  # Options: finmind, sec_edgar, alpha_vantage, yfinance
             "news_data": "finmind,yfinance",             # Options: finmind, alpha_vantage, yfinance
-            "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
+            # Taiwan market indicators (TAIEX, TPEx, USD/TWD, market-wide institutional
+            # and margin) come from FinMind; anything else is handed on to FRED.
+            "macro_data": "finmind,fred",        # Options: finmind (Taiwan indicators), fred (needs FRED_API_KEY)
             "prediction_markets": "polymarket",  # Options: polymarket (keyless)
             # Taiwan chip data (institutional flows, margin, foreign holding,
             # securities lending) for the chip analyst; FinMind only.
@@ -239,6 +241,10 @@ def build_default_config() -> dict:
         # least volume_spike_ratio times the prior 20-day average, close down at
         # least down_day_pct percent.
         "chip_analysis": {"lookback_days": 20, "volume_spike_ratio": 1.5, "down_day_pct": 3.0},
+        # FinMind requests a process may send in any hour, counted across processes
+        # sharing data_cache_dir; past it a request is refused as rate-limited
+        # without being sent. The free plan allows 600; 0 turns the count off.
+        "finmind_requests_per_hour": 500,
         # The Data Coverage step scores the run's tool results from 0 to 1
         # (agents/coverage.py); a score of at least "high" reads as high
         # coverage, at least "medium" as medium, anything lower as low. Add a

@@ -7,7 +7,11 @@ without ``FINMIND_TOKEN`` is reported as not configured and the router moves on.
 
 FinMind caps requests per hour, so every answer is kept under
 ``data_cache_dir/finmind``: a range that ends before today never changes and is
-kept for good; one that reaches today is refetched after its TTL.
+kept for good; one that reaches today is refetched after its TTL. Requests that
+do reach FinMind are also counted, across processes, against a budget of
+``finmind_requests_per_hour`` (config, below the free plan's 600): past it a
+request is refused as rate-limited without being sent, so a sweep of runs
+degrades the way FinMind's own limit would, before FinMind starts refusing.
 """
 
 from __future__ import annotations
@@ -28,7 +32,7 @@ from tradingagents.dataflows.errors import (
     VendorNotConfiguredError,
     VendorUnavailableError,
 )
-from tradingagents.dataflows.files import replace_file
+from tradingagents.dataflows.files import locked, replace_file
 from tradingagents.dataflows.symbols import safe_ticker_component, taiwan_stock_id
 
 logger = logging.getLogger(__name__)
@@ -56,6 +60,11 @@ def require_taiwan_stock(symbol: str) -> str:
     return stock_id
 
 
+def is_configured() -> bool:
+    """Whether FinMind can be asked at all (FINMIND_TOKEN is set)."""
+    return bool(os.getenv("FINMIND_TOKEN"))
+
+
 def get_token() -> str:
     token = os.getenv("FINMIND_TOKEN")
     if not token:
@@ -74,6 +83,37 @@ def _cache_is_fresh(path: str, end_date: str | None, ttl: int, final: bool) -> b
     if final or (end_date is not None and end_date < date.today().isoformat()):
         return True  # a closed past range never changes
     return time.time() - os.path.getmtime(path) <= ttl
+
+
+_HOUR = 3600
+
+
+def _spend_request_budget() -> None:
+    """Count one request against the hourly budget, or refuse it as rate-limited."""
+    budget = int(get_config().get("finmind_requests_per_hour") or 0)
+    if budget <= 0:
+        return
+    folder = os.path.join(get_config()["data_cache_dir"], "finmind")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "_requests.json")
+    with locked(path):
+        now = time.time()
+        try:
+            with open(path, encoding="utf-8") as handle:
+                stamps = [t for t in json.load(handle) if now - t < _HOUR]
+        except (OSError, ValueError):
+            stamps = []
+        if len(stamps) >= budget:
+            wait = _HOUR - (now - min(stamps))
+            raise FinMindRateLimitError(
+                f"local FinMind budget of {budget} requests per hour reached; the next is free in {wait:.0f}s")
+        stamps.append(now)
+
+        def write(temp: str) -> None:
+            with open(temp, "w", encoding="utf-8") as handle:
+                json.dump(stamps, handle)
+
+        replace_file(path, write)
 
 
 def _request(params: dict, token: str) -> list[dict]:
@@ -136,6 +176,7 @@ def fetch(
         params["data_id"] = data_id
     if end_date:
         params["end_date"] = end_date
+    _spend_request_budget()
     rows = _request(params, token)
 
     def write(temp: str) -> None:

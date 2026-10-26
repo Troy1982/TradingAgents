@@ -242,12 +242,24 @@ def _news_prompt(monkeypatch):
 
 
 @pytest.mark.unit
-def test_without_a_fred_key_the_macro_tool_is_withheld_and_the_gap_stated(monkeypatch):
+def test_without_a_fred_key_or_a_finmind_token_the_macro_tool_is_withheld_and_the_gap_stated(monkeypatch):
     monkeypatch.delenv("FRED_API_KEY", raising=False)
+    monkeypatch.delenv("FINMIND_TOKEN", raising=False)
     seen = _news_prompt(monkeypatch)
     assert "get_macro_indicators" not in seen["tools"]
     assert "macroeconomic data (FRED) is missing for this run" in seen["prompt"]
     assert NEWS_NUMBERS_RULE in seen["prompt"]
+
+
+@pytest.mark.unit
+def test_a_taiwan_run_with_finmind_gets_taiwan_macro_and_is_told_fred_is_missing(monkeypatch):
+    monkeypatch.delenv("FRED_API_KEY", raising=False)
+    monkeypatch.setenv("FINMIND_TOKEN", "t")
+    seen = _news_prompt(monkeypatch)
+    assert "get_macro_indicators" in seen["tools"]
+    assert "Taiwan macro data (FinMind) is available while US macro data (FRED) is missing" in seen["prompt"]
+    assert "'taiex', 'tpex', 'twd_usd'" in seen["prompt"] and "'cpi'" not in seen["prompt"]
+    assert "macroeconomic data (FRED) is missing for this run" not in seen["prompt"]
 
 
 @pytest.mark.unit

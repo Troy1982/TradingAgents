@@ -28,6 +28,7 @@ from tradingagents.dataflows.vendors.finmind import (
     get_income_statement as get_finmind_income_statement,
     get_indicators as get_finmind_indicators,
     get_institutional_flows as get_finmind_institutional_flows,
+    get_macro_data as get_finmind_macro_data,
     get_margin_short as get_finmind_margin_short,
     get_news as get_finmind_news,
     get_peer_valuation as get_finmind_peer_valuation,
@@ -221,6 +222,7 @@ VENDOR_METHODS = {
     },
     # macro_data
     "get_macro_indicators": {
+        "finmind": get_finmind_macro_data,
         "fred": get_fred_macro_data,
     },
     # prediction_markets
@@ -318,6 +320,7 @@ def route_to_vendor(method: str, *args, **kwargs):
     subject = f"{method}({symbol})" if symbol is not None else method
 
     last_no_data: NoMarketDataError | None = None
+    handed_over: UnsupportedSymbolError | None = None   # a vendor that does not cover the request
     last_unavailable: VendorUnavailableError | None = None
     failed: Exception | None = None     # a vendor that raised something untyped
     first_error: Exception | None = None
@@ -343,7 +346,7 @@ def route_to_vendor(method: str, *args, **kwargs):
         except UnsupportedSymbolError as e:
             # Expected hand-over (FinMind asked for a US symbol): not a failure.
             logger.debug("Vendor %r does not cover %s: %s", vendor, subject, e)
-            last_no_data = e
+            handed_over = e
             continue
         except NoMarketDataError as e:
             logger.info("Vendor %r has no data for %s: %s; trying next vendor.", vendor, subject, e)
@@ -365,8 +368,20 @@ def route_to_vendor(method: str, *args, **kwargs):
     # the run either.
     if last_unavailable is not None:
         return vendor_unavailable(method, last_unavailable)
-    if failed is not None and last_no_data is not None:
+    if failed is not None and (last_no_data or handed_over) is not None:
         return vendor_unavailable(method, failed)
+
+    # An optional category whose vendors either did not cover the request or were
+    # not configured (FinMind hands a US indicator on to FRED, which has no key)
+    # lacks a vendor, not data: say why rather than "no data for this symbol".
+    if last_no_data is None and handed_over is not None and first_error is not None \
+            and category in OPTIONAL_CATEGORIES:
+        logger.warning("Optional %s unavailable for %s: %s", category, method, first_error)
+        return (
+            f"DATA_UNAVAILABLE: optional {category} could not be retrieved "
+            f"({first_error}). Proceed without it; do not fabricate values."
+        )
+    last_no_data = last_no_data or handed_over
 
     # Every vendor that answered reported "no data": the symbol is genuinely unavailable.
     # Return one explicit, instructive sentinel rather than a vendor-specific

@@ -13,6 +13,7 @@ from tradingagents.dataflows.vendors.finmind.fundamentals import (
     get_fundamentals,
     get_income_statement,
 )
+from tradingagents.dataflows.vendors.finmind.macro import get_macro_data
 from tradingagents.dataflows.vendors.finmind.market import get_indicators, get_stock_data
 from tradingagents.dataflows.vendors.finmind.news import get_news
 from tradingagents.dataflows.vendors.finmind.peers import get_peer_valuation
@@ -26,6 +27,7 @@ __all__ = [
     "get_income_statement",
     "get_indicators",
     "get_institutional_flows",
+    "get_macro_data",
     "get_margin_short",
     "get_news",
     "get_peer_valuation",

@@ -558,3 +558,29 @@ def test_failed_statements_still_raise_for_the_router(api, monkeypatch):
         "TaiwanStockFinancialStatements", VendorUnavailableError("statements down")))
     with pytest.raises(VendorUnavailableError, match="statements down"):
         finmind.get_fundamentals("2330.TW", "2026-10-07")
+
+
+# --- the hourly request budget ----------------------------------------------------------
+
+@pytest.mark.unit
+def test_requests_past_the_hourly_budget_are_refused_unsent(api):
+    from tradingagents.dataflows.config import get_config
+    set_config({**get_config(), "finmind_requests_per_hour": 2})
+    client.fetch("TaiwanStockPER", "2330", "2026-01-01", "2026-01-31")
+    client.fetch("TaiwanStockPER", "2330", "2026-02-01", "2026-02-28")
+    client.fetch("TaiwanStockPER", "2330", "2026-01-01", "2026-01-31")      # cached: not counted
+    with pytest.raises(client.FinMindRateLimitError, match="budget of 2 requests per hour"):
+        client.fetch("TaiwanStockPER", "2330", "2026-03-01", "2026-03-31")
+    assert api.call_count == 2
+
+
+@pytest.mark.unit
+def test_an_old_request_frees_its_slot(api, monkeypatch):
+    from tradingagents.dataflows.config import get_config
+    set_config({**get_config(), "finmind_requests_per_hour": 1})
+    now = [1_000_000.0]
+    monkeypatch.setattr(client.time, "time", lambda: now[0])
+    client.fetch("TaiwanStockPER", "2330", "2026-01-01", "2026-01-31")
+    now[0] += 3601
+    client.fetch("TaiwanStockPER", "2330", "2026-02-01", "2026-02-28")
+    assert api.call_count == 2

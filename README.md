@@ -178,7 +178,7 @@ export MOONSHOT_API_KEY=...        # Kimi (Moonshot)
 export GROQ_API_KEY=...            # Groq
 export NVIDIA_API_KEY=...          # NVIDIA NIM
 export FRED_API_KEY=...            # FRED macro data (free, optional)
-export FINMIND_TOKEN=...           # FinMind Taiwan stock data, e.g. 2330.TW (free, optional; also the Chip Analyst and peer valuation)
+export FINMIND_TOKEN=...           # FinMind Taiwan stock data, e.g. 2330.TW (free, optional; also the Chip Analyst, peer valuation and Taiwan macro)
 export ALPHA_VANTAGE_API_KEY=...   # Alpha Vantage
 export TYPESAFE_API_KEY=...        # Jev social-post screening (optional)
 ```
@@ -192,6 +192,8 @@ For AWS Bedrock, install the extra with `pip install ".[bedrock]"`, set `llm_pro
 For local models, configure Ollama with `llm_provider: "ollama"`. The default endpoint is `http://localhost:11434/v1`; set `OLLAMA_BASE_URL` to point at a remote `ollama-serve`. Pull models with `ollama pull <name>`, and pick "Custom model ID" in the CLI for any model not listed by default.
 
 For any other OpenAI-compatible server (vLLM, LM Studio, llama.cpp, or a custom relay), use `llm_provider: "openai_compatible"` and set the endpoint via `backend_url` (or `TRADINGAGENTS_LLM_BACKEND_URL`), e.g. `http://localhost:8000/v1` for vLLM or `http://localhost:1234/v1` for LM Studio. The model is whatever your server serves. No key is needed for local servers; set `OPENAI_COMPATIBLE_API_KEY` when the endpoint requires one.
+
+For a Taiwan listing with `FINMIND_TOKEN` set, the News Analyst's macro tool reads Taiwan's market from FinMind: the TAIEX and TPEx indices, the USD/TWD rate, and market-wide institutional flows and margin balances, each up to the analysis date and only once the day's figure is published (`as_of_time`, Asia/Taipei). With `FRED_API_KEY` set it adds FRED's US and euro-area series; without it the report says Taiwan's macro data was read and FRED's was missing. Its global news searches Taiwan's market (`global_news_queries_tw`); Yahoo serves recent articles only, so a past date has no global news source. FinMind requests are held under `finmind_requests_per_hour` (500; the free plan allows 600), across runs sharing a cache.
 
 With `TYPESAFE_API_KEY` set, the Sentiment Analyst screens StockTwits and Reddit posts with TypeSafe's Jev before reading them. Posts that are not about the company are dropped, and each source opens with a count of the remaining posts by stance: bullish, bearish, neutral, or unclear. Without the key, posts pass through unscreened. `jev-latest` moves with new releases; set `TYPESAFE_DEFAULT_MODEL` to a versioned ID such as `jev-1.13.0` to hold it fixed across runs. To reach Jev through OpenRouter, put an OpenRouter key in `TYPESAFE_API_KEY` and set `TYPESAFE_BASE_URL=https://openrouter.ai/api`.
 

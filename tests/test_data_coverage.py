@@ -192,8 +192,14 @@ def test_the_summary_renders_its_gaps_as_a_table():
 @pytest.mark.unit
 def test_the_news_analyst_names_the_tools_it_withholds(monkeypatch):
     monkeypatch.delenv("FRED_API_KEY", raising=False)
+    monkeypatch.delenv("FINMIND_TOKEN", raising=False)
     assert _statuses(news_analyst.withheld_checks("2383.TW")) == {
         "get_macro_indicators": "not_offered", "get_prediction_markets": "not_applicable"}
+    # With FinMind, Taiwan's indicators are offered and only FRED's half is missing.
+    monkeypatch.setenv("FINMIND_TOKEN", "t")
+    assert _statuses(news_analyst.withheld_checks("2383.TW")) == {
+        "fred_macro": "not_offered", "get_prediction_markets": "not_applicable"}
+    assert _statuses(news_analyst.withheld_checks("NVDA")) == {"get_macro_indicators": "not_offered"}
     monkeypatch.setenv("FRED_API_KEY", "k")
     assert news_analyst.withheld_checks("NVDA") == []
 

@@ -15,6 +15,8 @@ from tradingagents.agents.tools import (
 )
 from tradingagents.dataflows.symbols import NOT_FOR_TAIWAN, is_taiwan_symbol
 from tradingagents.dataflows.vendors import fred
+from tradingagents.dataflows.vendors.finmind import client as finmind_client
+from tradingagents.dataflows.vendors.finmind.macro import INDICATORS as TAIWAN_INDICATORS
 
 # The tools this analyst is offered; its tool node is built from the same tuple.
 TOOLS = (
@@ -32,6 +34,20 @@ MACRO_UNAVAILABLE = (
 )
 
 
+TAIWAN_MACRO_ONLY = (
+    " Taiwan market indicators from FinMind are available through get_macro_indicators ("
+    + ", ".join(TAIWAN_INDICATORS) + "), but US and global series from FRED are not, because "
+    "FRED_API_KEY is not set. State in the report, in its own line and in the summary table, that "
+    "Taiwan macro data (FinMind) is available while US macro data (FRED) is missing for this run, and do "
+    "not quote or estimate US figures such as CPI, the fed funds rate or Treasury yields."
+)
+
+
+def _taiwan_macro(ticker: str) -> bool:
+    """Whether FinMind can serve this run Taiwan's market indicators."""
+    return is_taiwan_symbol(ticker) and finmind_client.is_configured()
+
+
 PREDICTION_MARKETS_NOT_FOR_TAIWAN = (
     f" Prediction markets (Polymarket) are not offered for this Taiwan-listed stock: "
     f"{NOT_FOR_TAIWAN}. Polymarket lists no market on Taiwan companies, and a keyword search "
@@ -43,11 +59,12 @@ PREDICTION_MARKETS_NOT_FOR_TAIWAN = (
 
 def offered_tools(ticker: str = "") -> tuple:
     """The tools bound for this run. A tool that cannot serve it is left out and
-    the gap is stated instead: the macro tool without a FRED key (it would only
-    return 'unavailable'), prediction markets for a Taiwan symbol (Polymarket has
-    no Taiwan markets, so it would return unrelated contracts)."""
+    the gap is stated instead: the macro tool when neither FRED (no key) nor, for
+    a Taiwan listing, FinMind (no token) can answer it, prediction markets for a
+    Taiwan symbol (Polymarket has no Taiwan markets, so it would return
+    unrelated contracts)."""
     withheld = set()
-    if not fred.is_configured():
+    if not fred.is_configured() and not _taiwan_macro(ticker):
         withheld.add(get_macro_indicators.name)
     if is_taiwan_symbol(ticker):
         withheld.add(get_prediction_markets.name)
@@ -57,7 +74,12 @@ def offered_tools(ticker: str = "") -> tuple:
 def withheld_checks(ticker: str = "") -> list[dict]:
     """A data check for each tool ``offered_tools`` leaves out, saying why."""
     checks = []
-    if not fred.is_configured():
+    if not fred.is_configured() and _taiwan_macro(ticker):
+        # The tool is offered for Taiwan's indicators; the US half is what is missing.
+        checks.append(check("news", "fred_macro", "not_offered",
+                            "FRED_API_KEY is not set: US macro series are missing; Taiwan indicators "
+                            "(FinMind) are offered"))
+    elif not fred.is_configured():
         checks.append(check("news", get_macro_indicators.name, "not_offered", "FRED_API_KEY is not set"))
     if is_taiwan_symbol(ticker):
         checks.append(check("news", get_prediction_markets.name, "not_applicable",
@@ -72,9 +94,15 @@ def _tool_guide(tools: tuple, asset_label: str, taiwan: bool = False) -> str:
     uses = {
         get_news.name: f"get_news(start_date, end_date) for news about the {asset_label} under analysis",
         get_global_news.name: f"get_global_news(curr_date, look_back_days, limit) for {market}",
-        get_macro_indicators.name: "get_macro_indicators(indicator, curr_date, look_back_days) to ground macro "
-        "commentary in actual data from FRED (e.g. 'cpi', 'core_pce', 'unemployment', 'fed_funds_rate', "
-        "'10y_treasury', 'yield_curve')",
+        get_macro_indicators.name: (
+            "get_macro_indicators(indicator, curr_date, look_back_days) to ground macro commentary in actual "
+            "data: Taiwan's market from FinMind ('taiex', 'tpex', 'twd_usd', 'market_institutional', "
+            "'market_margin')" + (" and US/global series from FRED (e.g. 'cpi', 'fed_funds_rate', "
+                                   "'10y_treasury')" if fred.is_configured() else "")
+            if taiwan else
+            "get_macro_indicators(indicator, curr_date, look_back_days) to ground macro "
+            "commentary in actual data from FRED (e.g. 'cpi', 'core_pce', 'unemployment', 'fed_funds_rate', "
+            "'10y_treasury', 'yield_curve')"),
         get_prediction_markets.name: "get_prediction_markets(topic, limit) for live market-implied probabilities "
         "of forward-looking events (e.g. 'Fed rate cut', 'recession 2026', geopolitical or sector events)",
     }
@@ -98,6 +126,7 @@ def create_news_analyst(llm):
             + _tool_guide(tools, asset_label, is_taiwan_symbol(state.get("company_of_interest", "")))
             + " Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
             + (MACRO_UNAVAILABLE if get_macro_indicators.name not in offered else "")
+            + (TAIWAN_MACRO_ONLY if get_macro_indicators.name in offered and not fred.is_configured() else "")
             + (PREDICTION_MARKETS_NOT_FOR_TAIWAN if get_prediction_markets.name not in offered else "")
             + " " + NEWS_NUMBERS_RULE
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
