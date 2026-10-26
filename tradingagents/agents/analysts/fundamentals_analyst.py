@@ -47,7 +47,7 @@ def create_fundamentals_analyst(llm):
             + " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
             + " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements, and `get_insider_transactions` for recent insider buying and selling."
             + (PEER_GUIDE if get_peer_valuation.name in {t.name for t in tools} else "")
-            + get_language_instruction()
+            + get_language_instruction(labelled_lines=False)
         )
 
         prompt = ChatPromptTemplate.from_messages(

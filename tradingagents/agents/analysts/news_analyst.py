@@ -130,7 +130,7 @@ def create_news_analyst(llm):
             + (PREDICTION_MARKETS_NOT_FOR_TAIWAN if get_prediction_markets.name not in offered else "")
             + " " + NEWS_NUMBERS_RULE
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
-            + get_language_instruction()
+            + get_language_instruction(labelled_lines=False)
         )
 
         prompt = ChatPromptTemplate.from_messages(

@@ -312,4 +312,4 @@ Fill the following fields:
 - **confidence**: low / medium / high, based on data quality and sample size.
 - **narrative**: Full source-by-source breakdown, divergences, dominant narrative themes, catalysts and risks, and a markdown summary table of key sentiment signals (direction, source, supporting evidence).
 
-{get_language_instruction()}"""
+{get_language_instruction(labelled_lines=False)}"""
