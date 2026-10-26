@@ -65,11 +65,13 @@ def withheld_checks(ticker: str = "") -> list[dict]:
     return checks
 
 
-def _tool_guide(tools: tuple, asset_label: str) -> str:
+def _tool_guide(tools: tuple, asset_label: str, taiwan: bool = False) -> str:
     """How to use each offered tool, in one sentence listing only those offered."""
+    market = ("Taiwan market, rate, currency and supply-chain news (it searches Taiwan's market for a Taiwan "
+              "listing; a past date has no source for it)") if taiwan else "broader macroeconomic news"
     uses = {
         get_news.name: f"get_news(start_date, end_date) for news about the {asset_label} under analysis",
-        get_global_news.name: "get_global_news(curr_date, look_back_days, limit) for broader macroeconomic news",
+        get_global_news.name: f"get_global_news(curr_date, look_back_days, limit) for {market}",
         get_macro_indicators.name: "get_macro_indicators(indicator, curr_date, look_back_days) to ground macro "
         "commentary in actual data from FRED (e.g. 'cpi', 'core_pce', 'unemployment', 'fed_funds_rate', "
         "'10y_treasury', 'yield_curve')",
@@ -93,7 +95,7 @@ def create_news_analyst(llm):
         offered = {t.name for t in tools}
         system_message = (
             "You are a news researcher tasked with analyzing recent news and trends over the past week. Please write a comprehensive report of the current state of the world that is relevant for trading and macroeconomics. "
-            + _tool_guide(tools, asset_label)
+            + _tool_guide(tools, asset_label, is_taiwan_symbol(state.get("company_of_interest", "")))
             + " Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
             + (MACRO_UNAVAILABLE if get_macro_indicators.name not in offered else "")
             + (PREDICTION_MARKETS_NOT_FOR_TAIWAN if get_prediction_markets.name not in offered else "")

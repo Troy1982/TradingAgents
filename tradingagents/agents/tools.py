@@ -9,6 +9,7 @@ from typing import Annotated
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
+from tradingagents.dataflows.config import get_config
 from tradingagents.dataflows.date_window import as_of, as_of_window, market_timezone
 from tradingagents.dataflows.errors import NoMarketDataError, VendorUnavailableError
 from tradingagents.dataflows.router import no_data_available, route_to_vendor, vendor_unavailable
@@ -213,9 +214,10 @@ def get_global_news(
     Returns:
         str: A formatted string containing global news data
     """
-    # A Taiwan run's window ends on the Taipei clock; any other keeps UTC days.
+    # A Taiwan run searches Taiwan's market news, and its window ends on the
+    # Taipei clock; any other keeps the global queries and UTC days.
     tz = market_timezone(symbol)
-    extra = {"tz": tz} if tz else {}
+    extra = {"tz": tz, "queries": get_config()["global_news_queries_tw"]} if tz else {}
     return route_to_vendor("get_global_news", as_of(curr_date, trade_date), look_back_days, limit, **extra)
 
 

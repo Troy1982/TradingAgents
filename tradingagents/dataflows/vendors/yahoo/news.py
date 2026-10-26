@@ -11,6 +11,7 @@ from tradingagents.dataflows.date_window import (
     coverage_gap,
     in_market_window,
     in_window,
+    is_historical,
     market_timezone,
 )
 from tradingagents.dataflows.errors import VendorUnavailableError
@@ -148,6 +149,7 @@ def get_global_news_yfinance(
     look_back_days: int | None = None,
     limit: int | None = None,
     tz: str | None = None,
+    queries: list[str] | None = None,
 ) -> str:
     """
     Retrieve global/macro economic news using yfinance Search.
@@ -160,6 +162,7 @@ def get_global_news_yfinance(
             ``global_news_article_limit`` from the active config.
         tz: The run's market clock (``market_timezone``), for a market whose
             days are not UTC days; None cuts the window in UTC.
+        queries: The searches to run; None uses ``global_news_queries``.
 
     Returns:
         Formatted string containing global news articles
@@ -169,7 +172,7 @@ def get_global_news_yfinance(
         look_back_days = config["global_news_lookback_days"]
     if limit is None:
         limit = config["global_news_article_limit"]
-    search_queries = config["global_news_queries"]
+    search_queries = queries or config["global_news_queries"]
 
     curr_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
     start_dt = curr_dt - relativedelta(days=look_back_days)
@@ -207,6 +210,13 @@ def get_global_news_yfinance(
     # Nothing fell inside the window -> say so rather than return an
     # empty-bodied report (#993).
     if not news_str:
+        if is_historical(as_of_date):
+            # Search serves recent articles only, and no configured vendor keeps
+            # market news by date: a past window has no source at all.
+            return (f"<Yahoo Finance global news unavailable for {start_date}..{as_of_date}: no historical "
+                    f"source. Yahoo search serves recent articles only and no configured vendor archives "
+                    f"market news by date, so a past date cannot be covered. This is not a temporary "
+                    f"failure and not an absence of market news.>")
         # Results merge several fuzzy searches, so their timestamps prove no
         # continuous coverage; judge the window against the present only.
         gap = coverage_gap((), start_date, as_of_date, "Yahoo Finance global news", "market news")

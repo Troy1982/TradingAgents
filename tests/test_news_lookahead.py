@@ -465,7 +465,8 @@ def test_the_global_news_tool_passes_a_taiwan_runs_clock(monkeypatch):
     monkeypatch.setattr(tools, "route_to_vendor", lambda *a, **k: seen.append(k) or "news")
     tools.get_global_news.func("2026-10-04", trade_date="2026-10-04", symbol="2383.TW")
     tools.get_global_news.func("2026-10-04", trade_date="2026-10-04", symbol="NVDA")
-    assert seen == [{"tz": "Asia/Taipei"}, {}]
+    from tradingagents.default_config import DEFAULT_CONFIG
+    assert seen == [{"tz": "Asia/Taipei", "queries": DEFAULT_CONFIG["global_news_queries_tw"]}, {}]
 
 
 @pytest.mark.unit
@@ -477,3 +478,45 @@ def test_alpha_vantage_asks_for_the_taipei_day_in_utc(monkeypatch):
     av_news.get_news("2383.TW", "2026-09-27", "2026-10-04")
     for params in sent:
         assert params["time_from"] == "20260926T1600" and params["time_to"] == "20261004T1559"
+
+
+
+@pytest.mark.unit
+def test_a_taiwan_run_searches_the_taiwan_queries(monkeypatch):
+    asked = []
+
+    class FakeSearch:
+        def __init__(self, query, **k):
+            asked.append(query)
+            self.news = []
+
+    monkeypatch.setattr(ynews.yf, "Search", FakeSearch)
+    ynews.get_global_news_yfinance("2026-10-04", 7, 5, tz="Asia/Taipei", queries=["台股 加權指數 外資", "新台幣 匯率"])
+    assert asked == ["台股 加權指數 外資", "新台幣 匯率"]
+    asked.clear()
+    ynews.get_global_news_yfinance("2026-10-04", 7, 5)
+    from tradingagents.default_config import DEFAULT_CONFIG
+    assert asked == DEFAULT_CONFIG["global_news_queries"]
+
+
+@pytest.mark.unit
+def test_a_past_date_has_no_global_news_source_and_says_so(monkeypatch):
+    class FakeSearch:
+        def __init__(self, *a, **k):
+            self.news = []
+
+    monkeypatch.setattr(ynews.yf, "Search", FakeSearch)
+    out = ynews.get_global_news_yfinance("2026-10-04", 7, 5, tz="Asia/Taipei")
+    assert out.startswith("<Yahoo Finance global news unavailable for 2026-09-27..2026-10-04: no historical source.")
+    assert "not a temporary failure" in out
+    from tradingagents.agents.coverage import classify_tool_output
+    assert classify_tool_output(out)[0] == "unavailable"
+
+
+@pytest.mark.unit
+def test_alpha_vantage_takes_the_queries_and_keeps_its_topics(monkeypatch):
+    from tradingagents.dataflows.vendors.alpha_vantage import news as av_news
+    sent = []
+    monkeypatch.setattr(av_news, "_make_api_request", lambda fn, params: sent.append(params) or "{}")
+    av_news.get_global_news("2026-10-04", 7, 5, tz="Asia/Taipei", queries=["台股"])
+    assert sent[0]["topics"] == "financial_markets,economy_macro,economy_monetary"

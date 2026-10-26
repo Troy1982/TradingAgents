@@ -173,6 +173,16 @@ def build_default_config() -> dict:
             "ECB Bank of England BOJ central bank policy",
             "oil commodities supply chain energy",
         ],
+        # Used instead of global_news_queries for a Taiwan listing (2330, 2383.TW,
+        # 8069.TWO): Taiwan's market, rates, currency and the supply chains that
+        # move it. Yahoo serves recent articles only, so a past date has none.
+        "global_news_queries_tw": [
+            "台股 加權指數 外資",
+            "Taiwan stock market TAIEX",
+            "Taiwan central bank interest rate",
+            "新台幣 匯率",
+            "semiconductor supply chain TSMC AI server",
+        ],
         # Data vendor configuration
         # Category-level configuration (default for all tools in category).
         # The configured value is the exact vendor chain — requests are NOT silently

@@ -48,6 +48,7 @@ def get_news(ticker, start_date, end_date) -> dict[str, str] | str:
 
 def get_global_news(
     as_of_date, look_back_days: int | None = None, limit: int | None = None, tz: str | None = None,
+    queries: list[str] | None = None,
 ) -> dict[str, str] | str:
     """Returns global market news & sentiment data without ticker-specific filtering.
 
@@ -60,6 +61,8 @@ def get_global_news(
         limit: Maximum number of articles; ``None`` uses
             ``global_news_article_limit`` from the active config.
         tz: The run's market clock (``market_timezone``); None cuts the window in UTC.
+        queries: Accepted for the router's other vendors; Alpha Vantage filters
+            by its fixed market topics, not by search terms.
 
     Returns:
         Dictionary containing global news sentiment data or JSON string.
