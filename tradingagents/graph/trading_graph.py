@@ -13,7 +13,7 @@ from tradingagents.agents.context import build_instrument_context, resolve_instr
 from tradingagents.agents.rating import run_rating
 from tradingagents.dataflows.config import run_config, run_config_context, set_config
 from tradingagents.dataflows.date_window import get_current_date, is_historical
-from tradingagents.dataflows.symbols import safe_ticker_component
+from tradingagents.dataflows.symbols import is_taiwan_symbol, safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients import create_tier_client, tier_provider
 from tradingagents.memory import TradingMemoryLog, settlement
@@ -51,12 +51,25 @@ _NOT_IN_SIGNATURE = frozenset({
 })
 
 
+# The analysts every run gets when the caller names none; the chip analyst is added
+# for a Taiwan listing only (it has nothing to say about any other).
+CORE_ANALYSTS = ("market", "social", "news", "fundamentals")
+
+
+def default_analysts(ticker: str) -> tuple[str, ...]:
+    """The analysts for ``ticker`` when the caller names none."""
+    return CORE_ANALYSTS + (("chips",) if is_taiwan_symbol(str(ticker)) else ())
+
+
 class TradingAgentsGraph:
     """Main class that orchestrates the trading agents framework."""
 
+    # Whether the analysts follow each run's ticker (none were named); see _fit_analysts.
+    _analysts_by_ticker = False
+
     def __init__(
         self,
-        selected_analysts=("market", "social", "news", "fundamentals", "chips"),
+        selected_analysts=None,
         debug=False,
         config: dict[str, Any] = None,
         callbacks: list | None = None,
@@ -64,7 +77,9 @@ class TradingAgentsGraph:
         """Initialize the trading agents graph and components.
 
         Args:
-            selected_analysts: List of analyst types to include
+            selected_analysts: List of analyst types to include. None (the default)
+                picks them per ticker at each run: the four core analysts, plus
+                the chip analyst for a Taiwan listing (``default_analysts``).
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
@@ -111,13 +126,23 @@ class TradingAgentsGraph:
         self.reflector = Reflector(self.quick_thinking_llm)
 
         # Graph-shape-affecting run choices, kept for the checkpoint signature.
-        self.selected_analysts = tuple(selected_analysts)
-
-        # Set up the graph: keep the workflow for recompilation with a checkpointer.
-        self.workflow = self.graph_setup.setup_graph(selected_analysts, memory_node=self._memory_step)
-        self.graph = self.workflow.compile()
+        # With none named they follow each run's ticker (_fit_analysts); until a
+        # run names one, the graph holds every analyst.
+        self._analysts_by_ticker = selected_analysts is None
+        self._build(tuple(selected_analysts) if selected_analysts is not None else CORE_ANALYSTS + ("chips",))
         self._checkpointer_ctx = None
         self._resuming = False
+
+    def _build(self, analysts: tuple[str, ...]) -> None:
+        """Set up the graph for ``analysts``: keep the workflow for recompilation with a checkpointer."""
+        self.selected_analysts = tuple(analysts)
+        self.workflow = self.graph_setup.setup_graph(self.selected_analysts, memory_node=self._memory_step)
+        self.graph = self.workflow.compile()
+
+    def _fit_analysts(self, ticker: str) -> None:
+        """With no analysts named, rebuild the graph for this ticker's (``default_analysts``)."""
+        if self._analysts_by_ticker and default_analysts(ticker) != self.selected_analysts:
+            self._build(default_analysts(ticker))
 
     def resolve_instrument_context(self, ticker: str, asset_type: str = "stock",
                                    trade_date: str | None = None) -> str:
@@ -186,6 +211,7 @@ class TradingAgentsGraph:
         PortfolioRating enum.
         """
         trade_date = _validate_trade_date(trade_date)
+        self._fit_analysts(company_name)
 
         with run_config(self.config), \
                 self.checkpoint_scope(company_name, trade_date, asset_type, portfolio) as thread_id_value:
@@ -206,6 +232,7 @@ class TradingAgentsGraph:
         graph, making the flag a no-op.
         """
         self._resuming = False
+        self._fit_analysts(company_name)
         if not self.config.get("checkpoint_enabled"):
             return None
         signature = self._run_signature(asset_type, portfolio)

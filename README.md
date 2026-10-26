@@ -255,7 +255,7 @@ We built TradingAgents with LangGraph to ensure flexibility and modularity. The 
 
 ### Python Usage
 
-To use TradingAgents inside your code, you can import the `tradingagents` module and initialize a `TradingAgentsGraph()` object. The `.propagate()` function will return a decision. You can run `main.py`, here's also a quick example:
+To use TradingAgents inside your code, you can import the `tradingagents` module and initialize a `TradingAgentsGraph()` object. The `.propagate()` function will return a decision. With no `selected_analysts` given, each run gets the market, sentiment, news and fundamentals analysts, plus the Chip Analyst for a Taiwan listing (2330.TW, 8069.TWO); name them, e.g. `TradingAgentsGraph(["market", "chips"])`, to fix the set. You can run `main.py`, here's also a quick example:
 
 ```python
 from tradingagents.graph.trading_graph import TradingAgentsGraph

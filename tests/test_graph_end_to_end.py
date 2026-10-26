@@ -436,3 +436,32 @@ def test_a_run_kept_out_of_the_memory_log_neither_records_nor_settles(tmp_path, 
     assert state["final_trade_decision"].strip()
     assert settled == []
     assert not (tmp_path / "log.md").exists()
+
+
+@pytest.mark.unit
+def test_with_no_analysts_named_the_chip_analyst_runs_for_taiwan_listings_only(tmp_path, monkeypatch, offline):
+    graph = _graph(tmp_path, monkeypatch, ScriptedModel())
+
+    us, _ = graph.propagate("NVDA", TRADE_DATE)
+    assert graph.selected_analysts == ("market", "social", "news", "fundamentals")
+    assert not us.get("chip_report")
+    assert graph.run_settings()["analysts"] == ["market", "social", "news", "fundamentals"]
+
+    tw, _ = graph.propagate("2383.TW", TRADE_DATE)
+    assert graph.selected_analysts == ("market", "social", "news", "fundamentals", "chips")
+    assert tw["chip_report"].strip()
+    assert "chips" in tw["data_coverage"]["by_analyst"]
+
+
+@pytest.mark.unit
+def test_named_analysts_are_kept_whatever_the_ticker(tmp_path, monkeypatch, offline):
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg.update(results_dir=str(tmp_path / "results"), data_cache_dir=str(tmp_path / "cache"),
+               memory_log_path=str(tmp_path / "log.md"))
+    monkeypatch.setattr(trading_graph, "create_tier_client", lambda config, tier, **k: _Client(ScriptedModel()))
+    graph = trading_graph.TradingAgentsGraph(["market", "chips"], config=cfg)
+    graph.propagate("NVDA", TRADE_DATE)
+    assert graph.selected_analysts == ("market", "chips")
+    graph = trading_graph.TradingAgentsGraph(["market"], config=cfg)
+    graph.propagate("2383.TW", TRADE_DATE)
+    assert graph.selected_analysts == ("market",)
