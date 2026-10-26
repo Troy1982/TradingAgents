@@ -126,6 +126,36 @@ def _dummy_api_keys(monkeypatch):
         monkeypatch.setenv(env_var, os.environ.get(env_var) or "placeholder")
 
 
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_setup(item):
+    """Snapshot DEFAULT_CONFIG before any fixture of the test runs."""
+    import copy
+
+    import tradingagents.default_config as default_config
+
+    item._default_config_before = copy.deepcopy(default_config.DEFAULT_CONFIG)
+    yield
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_teardown(item, nextitem):
+    """A test that leaves DEFAULT_CONFIG changed, nested settings included, errors.
+
+    Checked once every fixture is torn down, so monkeypatch has undone its own
+    changes: what remains is shared state that would leak into later runs.
+    """
+    yield
+    import tradingagents.default_config as default_config
+
+    before = getattr(item, "_default_config_before", None)
+    after = default_config.DEFAULT_CONFIG
+    if before is not None and after != before:
+        changed = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+        after.clear()
+        after.update(before)
+        raise AssertionError(f"{item.nodeid} left DEFAULT_CONFIG changed: {changed}")
+
+
 @pytest.fixture(autouse=True)
 def _isolate_config():
     """Reset the global dataflows config before and after each test.

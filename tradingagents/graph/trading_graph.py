@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import json
 import logging
@@ -69,7 +70,9 @@ class TradingAgentsGraph:
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
         """
         self.debug = debug
-        self.config = config or DEFAULT_CONFIG
+        # The graph's own copy: neither the caller's dict nor DEFAULT_CONFIG is
+        # shared with it, nested settings included.
+        self.config = copy.deepcopy(config or DEFAULT_CONFIG)
         self.callbacks = callbacks or []
 
         set_config(self.config)

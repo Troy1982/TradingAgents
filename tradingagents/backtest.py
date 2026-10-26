@@ -16,6 +16,7 @@ cell rather than a position carried forward.
 
 from __future__ import annotations
 
+import copy
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -148,7 +149,8 @@ def run_backtest(
     run_id = safe_ticker_component(run_id or datetime.now().strftime("%Y%m%d_%H%M%S"))
     run_dir = Path(config["results_dir"]) / "backtest" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    run_config = {**config, "results_dir": str(run_dir),
+    # A deep copy, so the sweep's settings are its own (the CLI passes DEFAULT_CONFIG).
+    run_config = {**copy.deepcopy(config), "results_dir": str(run_dir),
                   "memory_log_path": str(run_dir / "trading_memory.md")}
 
     graph = TradingAgentsGraph(selected_analysts, config=run_config)

@@ -1,5 +1,6 @@
 """Running one analysis from the CLI: build the graph, stream it into the live view, save the report."""
 
+import copy
 import logging
 import os
 import sys
@@ -101,7 +102,9 @@ def _build_run_config(selections: dict, checkpoint: bool | None) -> dict:
     Round counts and checkpoint follow "explicit env/flag wins": an env-applied
     value on DEFAULT_CONFIG is preserved unless the user overrode it on the CLI.
     """
-    config = DEFAULT_CONFIG.copy()
+    # A deep copy: nested settings (data_vendors, data_coverage) changed for this
+    # run must not reach DEFAULT_CONFIG or a later run in the same process.
+    config = copy.deepcopy(DEFAULT_CONFIG)
     # Research depth sets both round counts, but an explicit env override
     # (TRADINGAGENTS_MAX_DEBATE_ROUNDS / _MAX_RISK_ROUNDS) wins over the
     # interactive selection — leave the env-applied value in place (#977).
