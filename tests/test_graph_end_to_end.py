@@ -32,11 +32,11 @@ TRADE_DATE = "2026-01-09"
 TEXT = "Report.\n\n**Rating**: Overweight\n\nFINAL TRANSACTION PROPOSAL: **BUY**"
 
 STRUCTURED = {
-    schemas.ResearchPlan: schemas.ResearchPlan(confidence="medium", data_limitations="None", 
+    schemas.ResearchPlan: schemas.ResearchPlan(confidence="medium", data_limitations="None",
         recommendation=schemas.PortfolioRating.OVERWEIGHT, rationale="r", strategic_actions="a"),
     schemas.TraderProposal: schemas.TraderProposal(action=schemas.TraderAction.BUY, reasoning="r"),
     # The thesis quotes another party's rating; the decision is still the PM's own.
-    schemas.PortfolioDecision: schemas.PortfolioDecision(confidence="medium", data_limitations="None", 
+    schemas.PortfolioDecision: schemas.PortfolioDecision(confidence="medium", data_limitations="None",
         rating=schemas.PortfolioRating.OVERWEIGHT, executive_summary="s",
         investment_thesis="Street consensus rating: Buy (28 of 35 analysts)."),
     schemas.SentimentReport: schemas.SentimentReport(
