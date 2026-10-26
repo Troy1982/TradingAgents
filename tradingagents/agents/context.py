@@ -292,3 +292,38 @@ def coverage_context(state: Mapping[str, Any]) -> str:
         "name each gap above that bears on the call (the source and what is missing) and how it limits "
         "the conclusion; sources marked not_applicable do not cover this market and are not gaps.\n"
     )
+
+
+# How to weigh a run that lacks critical data. A gap removes one side's evidence
+# without adding any to the other's, yet measured runs moved from Overweight to
+# Underweight whenever the bull case's revenue or statements were missing.
+_DATA_GAP_RULES = (
+    "- A data gap is uncertainty, not evidence: it is neither a negative nor a positive signal, "
+    "and no argument may rest on what is missing.\n"
+    "- The rule that conflict alone is not a reason to Hold, and that the stronger side should win, "
+    "does not apply to an advantage one side has only because the other side's evidence is missing.\n"
+    "- The default rating is Hold. Overweight or Underweight needs a named piece of evidence from the "
+    "data actually served that is by itself enough to support that direction; valuation level, price "
+    "trend and institutional flows, which every run has, cannot be the only reason.\n"
+)
+_DATA_GAP_DECISION_RULE = (
+    "- In Data Limitations, say whether this rating was affected by the missing data, and how it could "
+    "change once the data is filled in.\n"
+)
+
+
+def data_gap_rules(state: Mapping[str, Any], decision: bool = False) -> str:
+    """Rules for weighing a run with critical data missing, or nothing when none is.
+
+    Shown to the researchers, the risk debaters and both managers only when the
+    Data Coverage step found a critical check not fully served (``capped_by``),
+    so a run with its critical data has the same prompts as before. ``decision``
+    adds what the Portfolio Manager's data limitations must say.
+    """
+    missing = list((state.get("data_coverage") or {}).get("capped_by") or [])
+    if not missing:
+        return ""
+    return (
+        f"\n**Critical data is missing for this run** ({', '.join(missing)}). While it is missing:\n"
+        + _DATA_GAP_RULES + (_DATA_GAP_DECISION_RULE if decision else "")
+    )

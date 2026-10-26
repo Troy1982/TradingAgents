@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from tradingagents.agents.context import (
     coverage_context,
+    data_gap_rules,
     get_instrument_context_from_state,
     get_language_instruction,
 )
@@ -73,7 +74,7 @@ The debate always contains conflicting arguments; deciding which side is stronge
 
 ---
 
-{coverage_context(state)}
+{coverage_context(state)}{data_gap_rules(state)}
 ## Output
 
 Write these sections, in this order, starting with the recommendation on its own line:

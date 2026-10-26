@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from tradingagents.agents.context import (
     coverage_context,
+    data_gap_rules,
     get_instrument_context_from_state,
     get_language_instruction,
     get_portfolio_context_from_state,
@@ -84,7 +85,7 @@ def create_portfolio_manager(llm):
 
 ---
 
-{coverage_context(state)}
+{coverage_context(state)}{data_gap_rules(state, decision=True)}
 Ground every conclusion in specific evidence from the analysts. The risk debate always contains conflicting stances; deciding which is stronger is the job, so conflict alone is not a reason to Hold. Commit to the stronger case, sized by how decisively it wins. Choose Hold only when the evidence is still balanced after that weighing, or too thin to support a call; do not force a direction to appear decisive. Weigh the analysts on their merits, independent of speaking order.
 
 ## Output
