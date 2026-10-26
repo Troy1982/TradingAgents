@@ -196,28 +196,48 @@ def apply_coverage_cap(rating: str, confidence: str, coverage: dict | None, sett
     }
     result["rating"] = capped_rating if enforced else rating
     result["confidence"] = capped_confidence if enforced else confidence
+    result["why"] = _why(coverage, settings)
     result["note"] = _cap_note(result)
     return result
 
 
+def _why(coverage: dict | None, settings: dict) -> str:
+    """The cap's reasons in the report language (``reasons`` keeps them in English for prompts)."""
+    from tradingagents.agents import i18n
+
+    coverage = coverage or {}
+    joiner = "、" if i18n.report_language() == i18n.ZH else ", "
+    parts = []
+    if coverage.get("level") == "low" and settings.get("cap_on_low", True):
+        parts.append(i18n.phrase("why_low", score=coverage.get("score")))
+    if coverage.get("capped_by") and settings.get("cap_on_critical", True):
+        parts.append(i18n.phrase("why_critical", tools=joiner.join(i18n.tool(t) for t in coverage["capped_by"])))
+    if not parts and coverage.get("level") == "medium":
+        parts.append(i18n.phrase("why_medium", score=coverage.get("score")))
+    return "; ".join(parts) or i18n.phrase("why_none")
+
+
 def cap_moves(cap: dict) -> str:
     """What the cap changes, in words ("the call from Sell to Underweight and confidence
-    from high to low"), or an empty string when it changes nothing."""
+    from high to low", in the report language), or an empty string when it changes nothing."""
+    from tradingagents.agents import i18n
+
     moves = []
     if cap["capped_rating"] != cap["model_rating"]:
-        moves.append(f"the call from {cap['model_rating']} to {cap['capped_rating']}")
+        moves.append(i18n.phrase("move_call", old=cap["model_rating"], new=cap["capped_rating"]))
     if cap["capped_confidence"] != cap["model_confidence"]:
-        moves.append(f"confidence from {cap['model_confidence']} to {cap['capped_confidence']}")
-    return " and ".join(moves)
+        moves.append(i18n.phrase("move_confidence", old=i18n.level(cap["model_confidence"]),
+                                 new=i18n.level(cap["capped_confidence"])))
+    return i18n.phrase("and").join(moves)
 
 
 def _cap_note(cap: dict) -> str:
     """One line for the decision text. It never writes "rating" before a colon or dash,
     so the rating parser cannot read it as the decision's rating."""
-    why = "; ".join(cap["reasons"]) or "data coverage allows any call"
+    from tradingagents.agents import i18n
+
+    why = cap.get("why") or "; ".join(cap["reasons"]) or i18n.phrase("why_none")
     change = cap_moves(cap)
     if not change:
-        return f"**Coverage Cap**: no change ({why}; confidence ceiling {cap['ceiling']})"
-    if cap["enforced"]:
-        return f"**Coverage Cap**: applied, moving {change} ({why})"
-    return f"**Coverage Cap**: not applied (shadow mode); if applied it would move {change} ({why})"
+        return i18n.phrase("cap_none", why=why, ceiling=i18n.level(cap["ceiling"]))
+    return i18n.phrase("cap_applied" if cap["enforced"] else "cap_shadow", change=change, why=why)

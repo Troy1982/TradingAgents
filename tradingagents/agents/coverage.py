@@ -296,8 +296,36 @@ def coverage_summary(checks: Iterable[Mapping], analysts: Iterable[str]) -> dict
     }
 
 
+def render_coverage_report(summary: Mapping) -> str:
+    """The summary as markdown for the saved report, in the run's output language (``i18n``).
+
+    The prompts read ``render_coverage``, in English with each check's own detail.
+    """
+    from tradingagents.agents import i18n
+
+    lines = [
+        i18n.phrase("coverage_title", level=i18n.level(summary["level"]), score=f"{summary['score']:.2f}"),
+        i18n.phrase("per_analyst", items=("、" if i18n.report_language() == i18n.ZH else ", ").join(
+            f"{i18n.analyst(a)} {s:.2f}" for a, s in summary["by_analyst"].items())),
+    ]
+    if summary.get("capped_by"):
+        lines.append(i18n.phrase("capped", tools=("、" if i18n.report_language() == i18n.ZH else ", ").join(
+            i18n.tool(t) for t in summary["capped_by"])))
+    lines.append(i18n.phrase("scoring"))
+    gaps = summary["gaps"]
+    if gaps:
+        lines += ["", i18n.phrase("table_head"), "|---|---|---|---|"]
+        for gap in gaps:
+            detail = i18n.detail(gap.get("detail", "")).replace("|", "\\|")
+            lines.append(f"| {i18n.analyst(gap['analyst'])} | {i18n.tool(gap['tool'])} | "
+                         f"{i18n.status(gap['status'], gap.get('scored', True))} | {detail} |")
+    else:
+        lines.append(i18n.phrase("no_gaps"))
+    return "\n".join(lines)
+
+
 def render_coverage(summary: Mapping) -> str:
-    """The summary as markdown, for the prompts that read it and the saved report."""
+    """The summary as markdown, in English with each check's detail, for the prompts that read it."""
     lines = [
         f"**Data Coverage**: {summary['level']} (score {summary['score']:.2f})",
         "Per analyst: " + ", ".join(f"{a} {s:.2f}" for a, s in summary["by_analyst"].items()),

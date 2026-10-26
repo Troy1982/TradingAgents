@@ -26,20 +26,25 @@ TOOLS = (
     get_prediction_markets,
 )
 
+# Each of these asks for a line in the report, said in the report's own language
+# and words: given a sentence to state, the model copied it into Chinese
+# reports in English.
 MACRO_UNAVAILABLE = (
     " Macroeconomic indicators from FRED are unavailable for this run because FRED_API_KEY "
-    "is not set, so get_macro_indicators is not offered. State in the report, in its own "
-    "line and in the summary table, that macroeconomic data (FRED) is missing for this run, "
-    "and do not quote or estimate macro figures such as CPI, rates or unemployment."
+    "is not set, so get_macro_indicators is not offered. In your own words and in the report's "
+    "language (do not copy this instruction), say on a line of its own and in the summary table that "
+    "this run has no macroeconomic data from FRED, and do not quote or estimate macro figures such as "
+    "CPI, rates or unemployment."
 )
 
 
 TAIWAN_MACRO_ONLY = (
     " Taiwan market indicators from FinMind are available through get_macro_indicators ("
     + ", ".join(TAIWAN_INDICATORS) + "), but US and global series from FRED are not, because "
-    "FRED_API_KEY is not set. State in the report, in its own line and in the summary table, that "
-    "Taiwan macro data (FinMind) is available while US macro data (FRED) is missing for this run, and do "
-    "not quote or estimate US figures such as CPI, the fed funds rate or Treasury yields."
+    "FRED_API_KEY is not set. In your own words and in the report's language (do not copy this "
+    "instruction), say on a line of its own and in the summary table that Taiwan's macro data was read "
+    "and US macro data was not, and do not quote or estimate US figures such as CPI, the fed funds rate "
+    "or Treasury yields."
 )
 
 
@@ -49,11 +54,11 @@ def _taiwan_macro(ticker: str) -> bool:
 
 
 PREDICTION_MARKETS_NOT_FOR_TAIWAN = (
-    f" Prediction markets (Polymarket) are not offered for this Taiwan-listed stock: "
-    f"{NOT_FOR_TAIWAN}. Polymarket lists no market on Taiwan companies, and a keyword search "
-    f"returns unrelated contracts. State in the report, in its own line and in the summary "
-    f"table, that Polymarket {NOT_FOR_TAIWAN} (this source does not apply to Taiwan stocks), "
-    f"and draw no probabilities or conclusions from prediction markets."
+    f" Prediction markets (Polymarket) are not offered for this Taiwan-listed stock: Polymarket lists "
+    f"no market on Taiwan companies, and a keyword search returns unrelated contracts. In the report's "
+    f"language, say on a line of its own and in the summary table that Polymarket {NOT_FOR_TAIWAN} "
+    f"(this source does not apply to Taiwan stocks), and draw no probabilities or conclusions from "
+    f"prediction markets."
 )
 
 

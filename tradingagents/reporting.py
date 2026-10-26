@@ -9,7 +9,8 @@ run produces the same on-disk report tree a CLI run does.
 from datetime import datetime
 from pathlib import Path
 
-from tradingagents.agents.coverage import render_coverage
+from tradingagents.agents import i18n
+from tradingagents.agents.coverage import render_coverage_report
 from tradingagents.agents.rating import cap_moves, run_rating
 from tradingagents.dataflows.router import vendor_chain_for
 from tradingagents.dataflows.symbols import NOT_FOR_TAIWAN
@@ -91,21 +92,25 @@ def coverage_section(final_state: dict) -> str:
     coverage = final_state.get("data_coverage")
     if not coverage:
         return ""
-    text = render_coverage(coverage)
+    text = render_coverage_report(coverage)
+    if coverage.get("capped_by"):
+        tools = ("、" if i18n.report_language() == i18n.ZH else ", ").join(i18n.tool(t) for t in coverage["capped_by"])
+        text += "\n\n" + i18n.phrase("rules_applied", tools=tools)
     research = final_state.get("research_coverage_cap")
     if research:
         moves = cap_moves(research)
-        why = "; ".join(research["reasons"]) or "data coverage allows any call"
-        effect = (f"if applied, it would move {moves} ({why})" if moves
-                  else f"applied, it would change nothing ({why}; confidence ceiling {research['ceiling']})")
-        text += (f"\n\nResearch Manager: recommended {research['model_rating']}, confidence "
-                 f"{research['model_confidence']}. The coverage cap is never applied to the research plan; "
-                 f"{effect}.")
+        why = research.get("why") or "; ".join(research["reasons"]) or i18n.phrase("why_none")
+        effect = (i18n.phrase("rm_would_move", change=moves, why=why) if moves
+                  else i18n.phrase("rm_no_change", why=why, ceiling=i18n.level(research["ceiling"])))
+        text += "\n\n" + i18n.phrase("rm_line", rating=research["model_rating"],
+                                      confidence=i18n.level(research["model_confidence"]), effect=effect)
     cap = final_state.get("coverage_cap")
     if cap:
-        text += (f"\n\nPortfolio Manager: the model's call was {cap['model_rating']}, confidence "
-                 f"{cap['model_confidence']}. Final: {final_state.get('final_rating', cap['rating'])}, "
-                 f"confidence {final_state.get('final_confidence', cap['confidence'])}.\n\n{cap['note']}")
+        text += "\n\n" + i18n.phrase(
+            "pm_line", rating=cap["model_rating"], confidence=i18n.level(cap["model_confidence"]),
+            final_rating=final_state.get("final_rating", cap["rating"]),
+            final_confidence=i18n.level(final_state.get("final_confidence", cap["confidence"])))
+        text += f"\n\n{cap['note']}"
     return text
 
 

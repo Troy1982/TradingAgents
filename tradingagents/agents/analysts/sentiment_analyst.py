@@ -33,6 +33,7 @@ from datetime import datetime, timedelta
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from tradingagents.agents import i18n
 from tradingagents.agents.context import (
     NEWS_NUMBERS_RULE,
     get_instrument_context_from_state,
@@ -77,27 +78,51 @@ def _news_source(news_block: str) -> str:
 
 
 def _news_count_line(counted: HeadlineCount, end_date: str, minimum: int) -> str:
+    if i18n.report_language() == i18n.ZH:
+        return (f"**News Items:** 期間內新聞 {counted.headlines} 則，去重後 {counted.independent} 則獨立事件"
+                f"（入口／討論頁 {counted.entry_pages} 則合併計為一則），截至 {end_date} "
+                f"{as_of_time():%H:%M:%S}（台北時間）公布；至少需 {minimum} 則獨立事件才判讀情緒。")
     return (f"**News Items:** {counted.describe()}, published by {end_date} {as_of_time():%H:%M:%S} "
             f"{TAIPEI}; at least {minimum} independent stories are needed to read a sentiment.")
 
 
 def insufficient_report(ticker: str, start_date: str, end_date: str, counted: HeadlineCount, minimum: int) -> str:
-    """The sentiment report when there is too little to read one: no band to weigh, no score."""
-    stories = "\n".join(f"- {titles[0]}" + (f" (+{len(titles) - 1} similar)" if len(titles) > 1 else "")
-                        for titles in counted.stories) or "- (none)"
+    """The sentiment report when there is too little to read one: no band to weigh, no score.
+
+    The first two lines are labels the program reads, in English; the rest is in
+    the run's output language (``i18n``).
+    """
+    zh = i18n.report_language() == i18n.ZH
+    similar = "（另有 {n} 則相似）" if zh else " (+{n} similar)"
+    stories = "\n".join(f"- {titles[0]}" + (similar.format(n=len(titles) - 1) if len(titles) > 1 else "")
+                        for titles in counted.stories) or ("- （無）" if zh else "- (none)")
+    if zh:
+        body = [
+            f"## {ticker} 情緒報告（{start_date} 至 {end_date}）：資料不足",
+            "",
+            f"期間內只有 {counted.independent} 則獨立新聞事件，少於判讀情緒所需的 {minimum} 則；"
+            f"StockTwits 與 Reddit 不涵蓋台股。本次不提供情緒判讀：這不是中性訊號，也不構成支持或反對"
+            f"這檔股票的證據。",
+            "",
+            "納入計算的新聞事件：",
+        ]
+    else:
+        body = [
+            f"## {ticker} sentiment, {start_date} to {end_date}: insufficient data (資料不足)",
+            "",
+            f"Only {counted.independent} independent news stories were published in the window, fewer than the "
+            f"{minimum} a sentiment read needs, and StockTwits and Reddit do not cover Taiwan-listed stocks. "
+            f"No sentiment is reported: this is not a neutral reading, and it is no evidence for or against "
+            f"the stock.",
+            "",
+            "Stories counted:",
+        ]
     return "\n".join([
         f"**Overall Sentiment:** **{INSUFFICIENT_DATA_BAND}** (Score: n/a)",
         "**Confidence:** Low",
         _news_count_line(counted, end_date, minimum),
         "",
-        f"## {ticker} sentiment, {start_date} to {end_date}: insufficient data (資料不足)",
-        "",
-        f"Only {counted.independent} independent news stories were published in the window, fewer than the "
-        f"{minimum} a sentiment read needs, and StockTwits and Reddit do not cover Taiwan-listed stocks. "
-        f"No sentiment is reported: this is not a neutral reading, and it is no evidence for or against "
-        f"the stock.",
-        "",
-        "Stories counted:",
+        *body,
         stories,
     ])
 
