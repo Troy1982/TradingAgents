@@ -193,11 +193,7 @@ For local models, configure Ollama with `llm_provider: "ollama"`. The default en
 
 For any other OpenAI-compatible server (vLLM, LM Studio, llama.cpp, or a custom relay), use `llm_provider: "openai_compatible"` and set the endpoint via `backend_url` (or `TRADINGAGENTS_LLM_BACKEND_URL`), e.g. `http://localhost:8000/v1` for vLLM or `http://localhost:1234/v1` for LM Studio. The model is whatever your server serves. No key is needed for local servers; set `OPENAI_COMPATIBLE_API_KEY` when the endpoint requires one.
 
-For a Taiwan listing with `FINMIND_TOKEN` set, the News Analyst's macro tool reads Taiwan's market from FinMind: the TAIEX and TPEx indices, the USD/TWD rate, and market-wide institutional flows and margin balances, each up to the analysis date and only once the day's figure is published (`as_of_time`, Asia/Taipei). With `FRED_API_KEY` set it adds FRED's US and euro-area series; without it the report says Taiwan's macro data was read and FRED's was missing. Its global news searches Taiwan's market (`global_news_queries_tw`); Yahoo serves recent articles only, so a past date has no global news source. FinMind requests are held under `finmind_requests_per_hour` (500; the free plan allows 600), across runs sharing a cache.
-
-Every run scores the data it actually had (the report's Data Coverage section). When coverage is low, or critical data (prices, the fundamentals summary, monthly revenue, the latest statement) is missing, the final rating is held back: a Buy becomes Overweight, a Sell Underweight, and confidence is at most low; medium coverage holds confidence at medium. This coverage cap is on by default. To only record what it would change (shadow mode), run with `--no-enforce-coverage-cap` or set `TRADINGAGENTS_COVERAGE_ENFORCE=false` (config `data_coverage.enforce`).
-
-Taiwan monthly revenue counts as public on the earlier of FinMind's `create_time` and its cut-off: the 10th of the next month (moved to a trading day), or ten days after it for financial and insurance companies, whose holding companies and insurers publish their monthly results a few days after the 10th (`revenue_publication` in the config). Most revenue rows before 2026 carry no `create_time`, so they count as public on the cut-off, often later than they were actually filed: a backtest over 2025 sees monthly revenue a few days late, a conservative bias, never an early one. A `create_time` later than expected is logged and named in the report's Data Coverage section.
+For Taiwan stocks (TWSE/TPEx) see [台股使用說明 (Taiwan stocks)](#台股使用說明-taiwan-stocks): FinMind data, publication dates, data coverage and the rating cap.
 
 With `TYPESAFE_API_KEY` set, the Sentiment Analyst screens StockTwits and Reddit posts with TypeSafe's Jev before reading them. Posts that are not about the company are dropped, and each source opens with a count of the remaining posts by stance: bullish, bearish, neutral, or unclear. Without the key, posts pass through unscreened. `jev-latest` moves with new releases; set `TYPESAFE_DEFAULT_MODEL` to a versioned ID such as `jev-1.13.0` to hold it fixed across runs. To reach Jev through OpenRouter, put an OpenRouter key in `TYPESAFE_API_KEY` and set `TYPESAFE_BASE_URL=https://openrouter.ai/api`.
 
@@ -250,6 +246,64 @@ An interface will appear showing results as they load, letting you track the age
 <p align="center">
   <img src="assets/cli/cli_transaction.png" width="100%" style="display: inline-block; margin: 0 2%;">
 </p>
+
+## 台股使用說明 (Taiwan stocks)
+
+TradingAgents 以 [FinMind](https://finmindtrade.com) 分析上市櫃股票。代號可寫 `2330`、`2330.TW`（上市）或 `8069.TWO`（上櫃）；裸代號會依 FinMind 的上市別補上後綴。以下說明台股執行時的資料來源、時點規則與報告判讀方式。
+
+### 設定
+
+在 `.env` 設定 `FINMIND_TOKEN`（[免費註冊](https://finmindtrade.com)）。沒有 token 時，台股改由 Yahoo Finance 提供股價，月營收、三大法人、融資融券、同業估值與台灣總經都無法取得。建議同時設定：
+
+```bash
+FINMIND_TOKEN=...
+TRADINGAGENTS_OUTPUT_LANGUAGE="Traditional Chinese"   # 報告語言
+FRED_API_KEY=...                                       # 選用：美國總經；沒有時報告會註明
+```
+
+台股的資料來源如下：股價、技術指標、財報、月營收、新聞、同業本益比（`TaiwanStockPER`）、籌碼（三大法人、融資融券、外資持股、借券）與台灣總經（加權指數、櫃買指數、美元兌新台幣、全市場法人與融資券）都來自 FinMind。StockTwits、Reddit、Polymarket 與 SEC EDGAR 不涵蓋台股，報告標示為「此來源不適用台股」，不列入計分。
+
+FinMind 免費方案每小時 600 次請求。所有回應都快取在 `data_cache_dir/finmind`，同一快取下的多次執行合計以 `finmind_requests_per_hour`（預設 500）為上限；超過時請求不送出，改以「暫時無法取得」降級。一次台股執行約使用 20–25 次請求。
+
+### CLI 參數與環境變數
+
+| 用途 | CLI | 環境變數 | 設定鍵 |
+|---|---|---|---|
+| 不寫入、不結算 memory log（測試與基準執行） | `--no-memory-log` | `TRADINGAGENTS_MEMORY_LOG_ENABLED=false` | `memory_log_enabled` |
+| 套用或關閉評級上限（預設套用） | `--enforce-coverage-cap` / `--no-enforce-coverage-cap` | `TRADINGAGENTS_COVERAGE_ENFORCE` | `data_coverage.enforce` |
+| 分析日當天資料可見的時間（台北時間，預設 23:59:59；收盤用 13:30:00） | | `TRADINGAGENTS_AS_OF_TIME` | `as_of_time` |
+| 籌碼分析師 | `--analysts market,sentiment,news,fundamentals,chips` | | |
+| 報告語言 | | `TRADINGAGENTS_OUTPUT_LANGUAGE` | `output_language` |
+
+其他設定鍵：`finmind_requests_per_hour`、`revenue_publication`（金融業寬限天數、已知補登日期）、`sentiment_min_items`（情緒判讀所需的獨立新聞數，預設 5）、`global_news_queries_tw`（台股全球新聞的搜尋詞）、`peer_groups`（同業名單，另見 `tradingagents/data/tw_peers.json`）、`language_check.min_cjk_share`。
+
+CLI 對台股預設勾選籌碼分析師；Python API 不指定分析師時，台股自動加入籌碼分析師，美股不加入。
+
+### 資料何時算「已公告」
+
+歷史日期的執行只會看到分析日當時已公開的資料（規則集中在 `tradingagents/dataflows/vendors/finmind/publication.py`）：
+
+- **月營收**：期限為次月 10 日，遇休市順延到下一個交易日。可見日為 FinMind `create_time` 與期限兩者較早者；`create_time` 為空時用期限。金融保險業（金控、壽險多在 10 日後數天公布自結數）的期限再加 10 天。`create_time` 晚於預期時寫入 log，並在資料覆蓋區塊列為「晚公告」。
+- **季財報**：FinMind 沒有申報日，以法定期限為可見日：一般公司 5/15、8/14、11/14、3/31，金融保險業 5/31、8/31、11/30、3/31，遇休市順延。
+- **新聞**：以台北時間切日，截至分析日的 `as_of_time`。
+- **總經**：每個指標只取分析日以前，且分析日當天的數值須在公布時間（例如融資券 21:30）早於 `as_of_time` 才納入。
+
+### 資料覆蓋與評級上限
+
+每次執行都會依各工具實際回傳的結果計算資料覆蓋分數（0–1），報告的「資料覆蓋」區塊列出分數、等級與每項缺口。權重為基本面 0.30、市場 0.25、籌碼 0.20、新聞 0.15、情緒 0.10；分數 ≥ 0.8 為高、≥ 0.5 為中，其餘為低。股價、基本面摘要、月營收或最新季財報任一項未完整取得時（`capped_by`），等級最高為中。
+
+評級上限（預設套用）：覆蓋為低或有關鍵缺口時，Buy 調為 Overweight、Sell 調為 Underweight，信心最高為低；覆蓋為中時信心最高為中。有關鍵缺口時，研究員、風險辯論者與兩位經理另會收到資料缺口規則：缺口代表不確定性而非證據，預設評級為 Hold，給出 Overweight 或 Underweight 必須指出實際取得、本身足以支持方向的證據；報告開頭會標示「本次評級受資料缺口規則約束」。
+
+台股情緒只有新聞標題可讀。去重後的獨立新聞少於 `sentiment_min_items` 時不呼叫模型，情緒報告標示「Insufficient Data」、不給分數，辯論不得引用。
+
+### 已知限制
+
+- 2025 年多數月營收沒有 `create_time`，一律以期限日為可見日，比實際公告晚，回測會有保守偏差（不會前視）。
+- 歷史日期的全球新聞沒有來源（Yahoo 只提供近期新聞），報告會註明「歷史日期無來源」。
+- 金控與壽險的「月營收」實為月自結數，性質與一般公司營收不同。
+- 季財報段落失敗時，整份基本面摘要改由 Yahoo 提供（歷史日期不提供），已取得的月營收與本益比也會一併捨棄。
+- 單次執行的評級有抽樣變異；回測時宜對同一樣本多次執行。
+- 同一事件不同角度的新聞標題不會合併計算；簡體中文報告不翻譯程式產生的文字。
 
 ## TradingAgents Package
 
