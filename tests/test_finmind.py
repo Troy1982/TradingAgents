@@ -359,13 +359,13 @@ def test_a_financial_company_is_served_on_the_later_deadline(api):
     ("2026-09-30", True, "2026-11-30"), ("2025-12-31", True, "2026-03-31"),
 ])
 def test_filing_deadlines(period, financial, due):
-    from tradingagents.dataflows.vendors.finmind.fundamentals import filing_deadline
-    assert filing_deadline(pd.Timestamp(period), financial) == pd.Timestamp(due)
+    from tradingagents.dataflows.vendors.finmind.publication import statement_deadline
+    assert statement_deadline(pd.Timestamp(period), financial) == pd.Timestamp(due)
 
 
 @pytest.mark.unit
 def test_an_unreadable_listing_takes_the_later_deadline(api, monkeypatch):
-    from tradingagents.dataflows.vendors.finmind.fundamentals import is_financial
+    from tradingagents.dataflows.vendors.finmind.publication import is_financial
     monkeypatch.setattr(client, "_request", mock.Mock(side_effect=VendorUnavailableError("down")))
     assert is_financial("2330")
     assert is_financial("9999")    # not listed

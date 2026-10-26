@@ -129,28 +129,18 @@ def tool_checks(analyst: str, messages: Iterable, ticker: str = "") -> list[dict
 _REVENUE_MONTH = re.compile(r"^Latest Monthly Revenue \((\d{4}-\d{2})\)", re.M)
 _STATEMENT_PERIOD = re.compile(r"^Latest Statement Period: (\d{4}-\d{2}-\d{2})", re.M)
 
-def expected_revenue_month(trade_date: str) -> pd.Period:
-    """The latest month whose revenue every company had to publish by ``trade_date``.
+def expected_revenue_month(trade_date: str, financial: bool = False) -> pd.Period:
+    """The latest month whose revenue had to be public by ``trade_date`` (``publication``, as the data layer uses)."""
+    from tradingagents.dataflows.vendors.finmind.publication import latest_due_revenue_month
 
-    Revenue is due by the 10th of the following month, moved past a weekend or
-    holiday the same way the data layer moves it.
-    """
-    from tradingagents.dataflows.vendors.finmind.fundamentals import revenue_public_by
-
-    day = pd.Timestamp(trade_date)
-    month = pd.Period(day, "M") - 1
-    return month if revenue_public_by(month) <= day else month - 1
+    return latest_due_revenue_month(trade_date, financial)
 
 
 def expected_statement_period(trade_date: str, financial: bool) -> pd.Timestamp:
-    """The latest quarter end whose statements were due by ``trade_date``."""
-    from tradingagents.dataflows.vendors.finmind.fundamentals import public_by
+    """The latest quarter end whose statements had to be public by ``trade_date`` (``publication``)."""
+    from tradingagents.dataflows.vendors.finmind.publication import latest_due_statement
 
-    day = pd.Timestamp(trade_date)
-    quarter_end = (day - pd.offsets.QuarterEnd(1)).normalize()
-    while public_by(quarter_end, financial) > day:
-        quarter_end = (quarter_end - pd.offsets.QuarterEnd(1)).normalize()
-    return quarter_end
+    return latest_due_statement(trade_date, financial)
 
 
 # Tools whose results carry a quarter's statement: the summary names its latest
@@ -216,7 +206,10 @@ def freshness_checks(
                       "could not be checked")]
     checks = []
 
-    expected_month = expected_revenue_month(trade_date)
+    if financial is None:
+        from tradingagents.dataflows.vendors.finmind.publication import is_financial
+        financial = is_financial(taiwan_stock_id(ticker))
+    expected_month = expected_revenue_month(trade_date, financial)
     found = _REVENUE_MONTH.search(fundamentals_output or "")
     lost = {name for name, _ in _SECTION_UNAVAILABLE.findall(fundamentals_output or "")}
     if "monthly_revenue" in lost:
@@ -231,9 +224,6 @@ def freshness_checks(
     else:
         checks.append(check("fundamentals", "monthly_revenue", "ok"))
 
-    if financial is None:
-        from tradingagents.dataflows.vendors.finmind.fundamentals import is_financial
-        financial = is_financial(taiwan_stock_id(ticker))
     expected_period = expected_statement_period(trade_date, financial)
     periods = [p for p in map(latest_statement_period, [fundamentals_output, *statement_outputs]) if p is not None]
     latest = max(periods) if periods else None

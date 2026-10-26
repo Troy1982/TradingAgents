@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from unittest import mock
 
+import pandas as pd
 import pytest
 
 import tradingagents.default_config as default_config
@@ -213,3 +214,49 @@ def test_the_summary_and_the_coverage_name_a_late_filing(recorded, monkeypatch):
     summary = coverage.coverage_summary([note, coverage.check("fundamentals", "get_fundamentals", "ok")],
                                         ["fundamentals"])
     assert summary["score"] == 1.0 and summary["gaps"] == [note]      # listed, not scored
+
+
+# --- one rule: the data served and the freshness expected agree -------------------------------
+
+def _freshness(stock, day, financial):
+    from tradingagents.agents import coverage
+    served = str(_monthly_revenue(stock, day).dropna().index[-1])
+    out = f"Latest Monthly Revenue ({served}): 1 TWD\nLatest Statement Period: 2026-06-30"
+    checks = coverage.freshness_checks(f"{stock}.TW", day, out, financial=financial)
+    return served, str(coverage.expected_revenue_month(day, financial)), {c["tool"]: c["status"] for c in checks}
+
+
+@pytest.mark.unit
+def test_2881_on_10_14_has_august_and_is_fresh(recorded):
+    served, due, status = _freshness("2881", "2026-10-14", financial=True)
+    assert (served, due, status["monthly_revenue"]) == ("2026-08", "2026-08", "ok")
+
+
+@pytest.mark.unit
+def test_2881_on_10_16_has_september_once_published(recorded):
+    # Filed 10-16: served from then; owed only from its cut-off (10-12 + 10 days).
+    served, due, status = _freshness("2881", "2026-10-16", financial=True)
+    assert (served, due, status["monthly_revenue"]) == ("2026-09", "2026-08", "ok")
+    from tradingagents.agents import coverage
+    assert str(coverage.expected_revenue_month("2026-10-22", True)) == "2026-09"
+
+
+@pytest.mark.unit
+def test_2383_on_10_14_owes_and_has_september(recorded):
+    served, due, status = _freshness("2383", "2026-10-14", financial=False)
+    assert (served, due, status["monthly_revenue"]) == ("2026-09", "2026-09", "ok")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("industry, financial", [("金融保險", True), ("紡織纖維", False)])
+def test_without_a_create_time_what_is_served_is_exactly_what_is_owed(recorded, monkeypatch, industry, financial):
+    """The data layer and the freshness check read one rule: on every day, the latest
+    month served when no row has a create_time is the latest month owed."""
+    from tradingagents.agents import coverage
+    from tradingagents.dataflows.vendors.finmind import calendar
+    _serve(monkeypatch, "2999", [dict(r, create_time="") for r in _rows("2999", {})], industry)
+    calendar.clear_cache()
+    # The rows run to September revenue, so up to the day before October's is due (11-10).
+    for day in pd.date_range("2026-09-01", "2026-11-09").strftime("%Y-%m-%d"):
+        served = str(_monthly_revenue("2999", day).dropna().index[-1])
+        assert served == str(coverage.expected_revenue_month(day, financial)), day
