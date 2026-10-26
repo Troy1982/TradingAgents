@@ -13,13 +13,13 @@ _SELECTIONS = {"research_depth": 1, "quick_think_llm": "q", "deep_think_llm": "d
 @pytest.mark.unit
 def test_a_cli_run_changing_a_nested_setting_leaves_the_defaults_and_the_next_run_alone():
     first = cli_run._build_run_config(_SELECTIONS, checkpoint=None)
-    first["data_coverage"]["enforce"] = True
+    first["data_coverage"]["enforce"] = False
     first["data_vendors"]["news_data"] = "yfinance"
 
-    assert default_config.DEFAULT_CONFIG["data_coverage"]["enforce"] is False
+    assert default_config.DEFAULT_CONFIG["data_coverage"]["enforce"] is True
     assert default_config.DEFAULT_CONFIG["data_vendors"]["news_data"] == "finmind,yfinance"
     second = cli_run._build_run_config(_SELECTIONS, checkpoint=None)
-    assert second["data_coverage"]["enforce"] is False and second["data_vendors"]["news_data"] == "finmind,yfinance"
+    assert second["data_coverage"]["enforce"] is True and second["data_vendors"]["news_data"] == "finmind,yfinance"
 
 
 class _Client:
@@ -42,11 +42,11 @@ def test_a_graph_keeps_its_own_copy_of_the_settings(tmp_path, monkeypatch, passe
         monkeypatch.setitem(default_config.DEFAULT_CONFIG, "data_cache_dir", str(tmp_path / "c"))
         monkeypatch.setitem(default_config.DEFAULT_CONFIG, "memory_log_path", str(tmp_path / "m.md"))
     graph = trading_graph.TradingAgentsGraph(["market"], config=config)
-    graph.config["data_coverage"]["enforce"] = True
+    graph.config["data_coverage"]["enforce"] = False
 
-    assert default_config.DEFAULT_CONFIG["data_coverage"]["enforce"] is False
+    assert default_config.DEFAULT_CONFIG["data_coverage"]["enforce"] is True
     if config is not None:
-        assert config["data_coverage"]["enforce"] is False
+        assert config["data_coverage"]["enforce"] is True
 
 
 @pytest.mark.unit
@@ -56,7 +56,7 @@ def test_a_backtest_sweep_does_not_change_the_settings_it_was_given(tmp_path, mo
 
     class Graph:
         def __init__(self, analysts, config):
-            config["data_coverage"]["enforce"] = True
+            config["data_coverage"]["enforce"] = False
             seen["config"] = config
             self.memory_log = type("Log", (), {"load_entries": lambda self: []})()
 
@@ -66,8 +66,8 @@ def test_a_backtest_sweep_does_not_change_the_settings_it_was_given(tmp_path, mo
     monkeypatch.setattr(backtest, "TradingAgentsGraph", Graph)
     monkeypatch.setitem(default_config.DEFAULT_CONFIG, "results_dir", str(tmp_path))
     backtest.run_backtest(["2383.TW"], [], default_config.DEFAULT_CONFIG)
-    assert seen["config"]["data_coverage"]["enforce"] is True
-    assert default_config.DEFAULT_CONFIG["data_coverage"]["enforce"] is False
+    assert seen["config"]["data_coverage"]["enforce"] is False
+    assert default_config.DEFAULT_CONFIG["data_coverage"]["enforce"] is True
 
 
 @pytest.mark.unit
@@ -92,7 +92,7 @@ class _Stop(Exception):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("flag, expected", [(True, True), (False, False), (None, False)])
+@pytest.mark.parametrize("flag, expected", [(True, True), (False, False), (None, True)])
 def test_the_cli_flag_reaches_the_graph_and_only_this_run(monkeypatch, flag, expected):
     from cli.models import AnalystType
     seen = {}
@@ -108,4 +108,4 @@ def test_the_cli_flag_reaches_the_graph_and_only_this_run(monkeypatch, flag, exp
     with pytest.raises(_Stop):
         cli_run.run_analysis(enforce_coverage_cap=flag, flags={})
     assert seen["enforce"] is expected
-    assert default_config.DEFAULT_CONFIG["data_coverage"]["enforce"] is False
+    assert default_config.DEFAULT_CONFIG["data_coverage"]["enforce"] is True

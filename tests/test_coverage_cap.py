@@ -126,7 +126,15 @@ def test_a_sell_with_high_confidence_and_a_critical_gap_becomes_underweight_low(
 
 
 @pytest.mark.unit
+def test_the_cap_is_applied_by_default():
+    llm, _ = _structured_llm("Sell", "high")
+    out = create_portfolio_manager(llm)(_pm_state(CRITICAL))
+    assert (out["final_rating"], out["final_confidence"]) == ("Underweight", "low")
+
+
+@pytest.mark.unit
 def test_in_shadow_mode_the_call_stands_and_the_change_is_recorded():
+    _enforce(False)
     llm, _ = _structured_llm("Sell", "high")
     out = create_portfolio_manager(llm)(_pm_state(CRITICAL))
     assert (out["final_rating"], out["final_confidence"]) == ("Sell", "high")

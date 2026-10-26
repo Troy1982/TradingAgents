@@ -266,11 +266,12 @@ def build_default_config() -> dict:
         # The coverage cap on the final decision (agents/rating.apply_coverage_cap):
         # coverage low (cap_on_low) or critical data missing (cap_on_critical)
         # moves a rating by rating_cap and holds confidence at low; medium
-        # coverage holds confidence at medium. With enforce false (the default)
-        # the decision only records what the cap would change; true applies it.
+        # coverage holds confidence at medium. With enforce true (the default) the
+        # cap is applied; false (CLI --no-enforce-coverage-cap, or
+        # TRADINGAGENTS_COVERAGE_ENFORCE=false) only records what it would change.
         "data_coverage": {
             "high": 0.8, "medium": 0.5,
-            "enforce": False,
+            "enforce": True,
             "cap_on_low": True, "cap_on_critical": True,
             "rating_cap": {"Buy": "Overweight", "Sell": "Underweight"},
         },

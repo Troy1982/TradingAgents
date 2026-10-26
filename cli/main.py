@@ -76,8 +76,9 @@ def analyze(
     ),
     enforce_coverage_cap: bool | None = typer.Option(
         None, "--enforce-coverage-cap/--no-enforce-coverage-cap",
-        help="Apply the data coverage cap to the final rating and confidence (default: no, the "
-        "decision only records what the cap would change). Omit to honor TRADINGAGENTS_COVERAGE_ENFORCE.",
+        help="Apply the data coverage cap to the final rating and confidence (default: yes). "
+        "--no-enforce-coverage-cap only records what the cap would change (shadow mode). "
+        "Omit to honor TRADINGAGENTS_COVERAGE_ENFORCE.",
     ),
 ):
     """Run an analysis. This is what a bare `tradingagents` does.
