@@ -8,6 +8,7 @@ from tradingagents.agents.context import (
     get_instrument_context_from_state,
     get_language_instruction,
 )
+from tradingagents.agents.language_check import in_output_language, rewriter
 from tradingagents.agents.rating import apply_coverage_cap, parse_confidence, parse_recommendation
 from tradingagents.agents.schemas import ResearchPlan, render_research_plan
 from tradingagents.agents.structured import (
@@ -94,6 +95,8 @@ Write these sections, in this order, starting with the recommendation on its own
             render_research_plan,
             "Research Manager",
         )
+
+        investment_plan = in_output_language(investment_plan, rewriter(llm), "Research Manager")
 
         # What the coverage cap would make of the plan, for the report only: the
         # cap is never applied to the plan, which the trader reads as written.

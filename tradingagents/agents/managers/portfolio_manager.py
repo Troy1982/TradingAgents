@@ -23,6 +23,7 @@ from tradingagents.agents.context import (
     get_language_instruction,
     get_portfolio_context_from_state,
 )
+from tradingagents.agents.language_check import in_output_language, rewriter
 from tradingagents.agents.rating import apply_coverage_cap, parse_confidence, parse_rating
 from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
 from tradingagents.agents.structured import NO_EXTERNAL_TOOLS, bind_structured, invoke_structured
@@ -110,6 +111,7 @@ Write these sections, in this order, starting with the rating on its own line:
             decision_text = llm.invoke(prompt).content
             model_rating, model_confidence = parse_rating(decision_text), parse_confidence(decision_text)
 
+        decision_text = in_output_language(decision_text, rewriter(llm), "Portfolio Manager")
         cap = apply_coverage_cap(model_rating, model_confidence, state.get("data_coverage"),
                                  get_config().get("data_coverage") or {})
         final_trade_decision = _with_cap(decision_text, cap)

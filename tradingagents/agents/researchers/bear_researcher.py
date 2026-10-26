@@ -7,6 +7,7 @@ from tradingagents.agents.context import (
     report_or_absent,
     sentiment_report_for_debate,
 )
+from tradingagents.agents.language_check import in_output_language, rewriter
 
 
 def create_bear_researcher(llm):
@@ -56,7 +57,7 @@ Use this information to deliver a compelling bear argument, refute the bull's cl
 
         response = llm.invoke(prompt)
 
-        argument = f"Bear Analyst: {response.content}"
+        argument = f"Bear Analyst: {in_output_language(response.content, rewriter(llm), 'Bear Analyst')}"
 
         new_investment_debate_state = {
             "history": history + "\n" + argument,

@@ -8,6 +8,7 @@ from tradingagents.agents.context import (
     report_or_absent,
     sentiment_report_for_debate,
 )
+from tradingagents.agents.language_check import in_output_language, rewriter
 
 
 def create_neutral_debator(llm):
@@ -51,7 +52,7 @@ Engage actively by analyzing both sides critically, addressing weaknesses in the
 
         response = llm.invoke(prompt)
 
-        argument = f"Neutral Analyst: {response.content}"
+        argument = f"Neutral Analyst: {in_output_language(response.content, rewriter(llm), 'Neutral Analyst')}"
 
         new_risk_debate_state = {
             "history": history + "\n" + argument,

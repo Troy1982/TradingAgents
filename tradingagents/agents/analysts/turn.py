@@ -4,6 +4,8 @@ import json
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from tradingagents.agents.language_check import in_output_language, rewriter
+
 WRAP_UP = (
     "You have used every tool round this report allows. Write your final report "
     "now from the tool results above, and say which data you could not retrieve."
@@ -22,9 +24,11 @@ def take_turn(prompt, llm, tools, messages):
         # call may still try, and some providers then answer with nothing.
         prompt = prompt.partial(tool_names="none; your tool rounds are spent")
         result = (prompt | llm).invoke(_as_text(messages))
-        return result, result.content
+        return result, in_output_language(result.content, rewriter(llm), "analyst report")
     result = (prompt | llm.bind_tools(tools)).invoke(messages)
-    return result, "" if result.tool_calls else result.content
+    if result.tool_calls:
+        return result, ""
+    return result, in_output_language(result.content, rewriter(llm), "analyst report")
 
 
 def _as_text(messages):

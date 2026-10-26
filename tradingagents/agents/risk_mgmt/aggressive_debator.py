@@ -8,6 +8,7 @@ from tradingagents.agents.context import (
     report_or_absent,
     sentiment_report_for_debate,
 )
+from tradingagents.agents.language_check import in_output_language, rewriter
 
 
 def create_aggressive_debator(llm):
@@ -51,7 +52,7 @@ Engage actively by addressing any specific concerns raised, refuting the weaknes
 
         response = llm.invoke(prompt)
 
-        argument = f"Aggressive Analyst: {response.content}"
+        argument = f"Aggressive Analyst: {in_output_language(response.content, rewriter(llm), 'Aggressive Analyst')}"
 
         new_risk_debate_state = {
             "history": history + "\n" + argument,

@@ -158,6 +158,10 @@ def build_default_config() -> dict:
         # independent stories than this (after de-duplication, agents/headlines.py)
         # the sentiment analyst reports Insufficient Data and calls no model.
         "sentiment_min_items": 5,
+        # In a Chinese run, an agent's output with a smaller share of Chinese
+        # characters (over Chinese characters and Latin letters) is rewritten once,
+        # then flagged in the report (agents/language_check.py).
+        "language_check": {"min_cjk_share": 0.3},
         "global_news_article_limit": 10,      # max articles for global/macro news
         "global_news_lookback_days": 7,       # macro news lookback window
         # For a Taiwan listing, dated items (news) count as known by the

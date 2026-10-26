@@ -7,6 +7,7 @@ from tradingagents.agents.context import (
     report_or_absent,
     sentiment_report_for_debate,
 )
+from tradingagents.agents.language_check import in_output_language, rewriter
 
 
 def create_bull_researcher(llm):
@@ -54,7 +55,7 @@ Use this information to deliver a compelling bull argument, refute the bear's co
 
         response = llm.invoke(prompt)
 
-        argument = f"Bull Analyst: {response.content}"
+        argument = f"Bull Analyst: {in_output_language(response.content, rewriter(llm), 'Bull Analyst')}"
 
         new_investment_debate_state = {
             "history": history + "\n" + argument,

@@ -41,6 +41,7 @@ from tradingagents.agents.context import (
 )
 from tradingagents.agents.coverage import check, classify_tool_output
 from tradingagents.agents.headlines import HeadlineCount, count_independent
+from tradingagents.agents.language_check import in_output_language, rewriter
 from tradingagents.agents.post_screen import jev_screen
 from tradingagents.agents.schemas import (
     INSUFFICIENT_DATA_BAND,
@@ -241,6 +242,7 @@ def create_sentiment_analyst(llm):
             "Sentiment Analyst",
         )
 
+        report_text = in_output_language(report_text, rewriter(llm), "Sentiment Analyst")
         if counted is not None:
             band_line, _, rest = report_text.partition("\n")
             report_text = f"{band_line}\n{_news_count_line(counted, end_date, minimum)}\n{rest}"
