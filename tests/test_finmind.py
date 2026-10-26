@@ -584,3 +584,18 @@ def test_an_old_request_frees_its_slot(api, monkeypatch):
     now[0] += 3601
     client.fetch("TaiwanStockPER", "2330", "2026-02-01", "2026-02-28")
     assert api.call_count == 2
+
+
+@pytest.mark.unit
+def test_one_failed_revenue_dataset_is_one_scored_gap(api, monkeypatch):
+    from tradingagents.agents import coverage
+    monkeypatch.setattr(client, "_request", _with(
+        "TaiwanStockMonthRevenue", VendorUnavailableError("FinMind could not serve TaiwanStockMonthRevenue: 503")))
+    out = finmind.get_fundamentals("2330.TW", "2026-10-07")
+    assert out.count("SECTION_UNAVAILABLE") == 1 and "revenue_timing" not in out
+    checks = (coverage.section_checks(out)
+              + coverage.revenue_timing_checks(out)
+              + coverage.freshness_checks("2330.TW", "2026-10-07", out, financial=False))
+    scored_gaps = [c for c in checks if c["status"] not in ("ok", "empty", "not_applicable", "late_publication")
+                   and c.get("scored", True)]
+    assert [(c["tool"], c["status"]) for c in scored_gaps] == [("monthly_revenue", "unavailable")]

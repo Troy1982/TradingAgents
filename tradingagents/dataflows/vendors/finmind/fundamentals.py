@@ -445,7 +445,14 @@ def get_fundamentals(ticker: str, as_of_date: str | None = None) -> str:
     monthly = _section("monthly_revenue", unavailable, lambda: _monthly_revenue(stock_id, day))
     revenue_fields, revenue_section = _monthly_revenue_report(monthly, income) if monthly is not None else ([], "")
     fields += revenue_fields
-    timing = _section("revenue_timing", unavailable, lambda: revenue_timing_notes(stock_id, day)) or []
+    # Timing reads the same rows: with the revenue lost, its gap already says so,
+    # and a failure of the check alone is not a gap in the data.
+    timing = []
+    if monthly is not None:
+        try:
+            timing = revenue_timing_notes(stock_id, day)
+        except (VendorUnavailableError, NoMarketDataError) as exc:
+            logger.warning("Revenue timing for %s could not be checked: %s", stock_id, exc)
     if timing:
         revenue_section += "\n\n## Revenue timing notes\n" + "\n".join(timing)
 
