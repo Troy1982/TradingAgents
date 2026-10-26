@@ -172,3 +172,67 @@ def test_the_packaged_logo_stays_inert(tmp_path):
     tags = set(re.findall(r"<\s*([a-zA-Z][\w:-]*)", logo))
     assert tags <= {"svg", "path", "rect", "circle", "g", "defs", "clipPath", "linearGradient", "stop"}
     assert not re.search(r"\son\w+\s*=|href|url\(|@import|javascript:|<!entity|<!doctype", logo, re.IGNORECASE)
+
+
+# --- data coverage, an unread sentiment, the data-gap rules ------------------------------------
+
+def _coverage_state(level="medium", capped_by=("monthly_revenue",), sentiment="**Overall Sentiment:** **Mildly Bullish** (Score: 6.0/10)\nok"):
+    return {
+        "company_of_interest": "2368.TW", "trade_date": "2026-10-17",
+        "sentiment_report": sentiment, "final_trade_decision": "**Rating**: Underweight",
+        "final_rating": "Underweight", "final_confidence": "low",
+        "data_coverage": {"score": 0.89, "level": level, "capped_by": list(capped_by), "by_analyst": {"market": 1.0},
+                          "gaps": []},
+    }
+
+
+def _page(state):
+    from tradingagents.report_html import render_report
+    from tradingagents.reporting import _report_parts
+    return render_report("2368.TW", state, None, _report_parts(state))
+
+
+@pytest.mark.unit
+def test_a_critical_gap_marks_the_coverage_panel_and_names_the_rules():
+    page = _page(_coverage_state())
+    assert '<section id="s1" class="coverage alert">' in page
+    assert 'class="coverage-flag"' in page
+    assert '<p class="gap-rules" role="note">This rating was made under the data-gap rules' in page
+    assert "<dt>Data coverage</dt><dd>medium (0.89)</dd>" in page and "<dt>Confidence</dt><dd>low</dd>" in page
+
+
+@pytest.mark.unit
+def test_full_coverage_shows_a_plain_panel_and_no_rules_note():
+    page = _page(_coverage_state(level="high", capped_by=()))
+    assert '<section id="s1" class="coverage">' in page
+    assert "coverage-flag" not in page.split("</style>")[1] and "gap-rules" not in page.split("</style>")[1]
+
+
+@pytest.mark.unit
+def test_low_coverage_alone_marks_the_panel():
+    assert 'class="coverage alert"' in _page(_coverage_state(level="low", capped_by=()))
+
+
+@pytest.mark.unit
+def test_an_unread_sentiment_is_greyed():
+    page = _page(_coverage_state(sentiment="**Overall Sentiment:** **Insufficient Data** (Score: n/a)\n**Confidence:** Low"))
+    assert '<div class="insufficient">' in page
+    assert '<div class="insufficient">' not in _page(_coverage_state())
+
+
+@pytest.mark.unit
+def test_a_chinese_report_is_marked_chinese(monkeypatch):
+    import copy
+
+    import tradingagents.default_config as default_config
+    from tradingagents.dataflows.config import set_config
+    config = copy.deepcopy(default_config.DEFAULT_CONFIG)
+    config["output_language"] = "Traditional Chinese"
+    set_config(config)
+    try:
+        page = _page(_coverage_state())
+        assert '<html lang="zh-Hant">' in page
+        assert "本次評級受資料缺口規則約束：關鍵資料未完整取得（月營收）。" in page
+        assert "資料覆蓋偏低或關鍵資料缺失" in page and "<dt>Confidence</dt><dd>低</dd>" in page
+    finally:
+        set_config(copy.deepcopy(default_config.DEFAULT_CONFIG))

@@ -12,7 +12,9 @@ from importlib.resources import files
 
 from markdown_it import MarkdownIt
 
+from tradingagents.agents import i18n
 from tradingagents.agents.rating import run_rating
+from tradingagents.agents.schemas import INSUFFICIENT_DATA_BAND
 from tradingagents.dataflows.router import vendor_chain_for
 from tradingagents.dataflows.symbols import NOT_FOR_TAIWAN
 from tradingagents.reporting import analyst_names
@@ -124,6 +126,18 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .contents, .contents .label { transition: none; }
 }
 
+/* Data coverage: a quiet panel, marked when coverage is low or critical data is
+   missing; a sentiment the program could not read is greyed. */
+section.coverage { padding: 0 1rem 0.5rem; border-left: 4px solid var(--edge); }
+section.coverage.alert { border-left-color: var(--down); background: var(--wash); }
+section.coverage.alert > h2 { color: var(--down); }
+.coverage-flag { display: inline-block; margin-left: 0.5rem; padding: 0 0.45rem; border-radius: 4px;
+  background: var(--down); color: var(--paper); font: 600 0.75rem/1.6 var(--sans); vertical-align: middle; }
+.gap-rules { margin: -0.75rem 0 1.25rem; padding: 0.5rem 0.75rem; border: 1px solid var(--down);
+  border-radius: 4px; color: var(--down); font: 0.9rem/1.45 var(--sans); }
+.insufficient { color: var(--muted); filter: grayscale(1); opacity: 0.8; }
+.insufficient a { color: inherit; }
+
 /* The maker's credit: one quiet line at the foot. */
 .credit { margin-top: 4.5rem; padding-top: 1.25rem; border-top: 1px solid var(--rule);
   color: var(--muted); font: 0.8rem/1.4 var(--sans); }
@@ -226,6 +240,11 @@ def _group(name: str, values_html: str) -> str:
 def _run_details(final_state: dict, settings: dict | None, ticker: str | None = None) -> list[tuple[str, str]]:
     """The run details as (label, value HTML); every value from the run is escaped."""
     details = [("Generated", escape(datetime.now().strftime("%Y-%m-%d %H:%M")))]
+    if final_state.get("final_confidence"):
+        details.append(("Confidence", escape(i18n.level(final_state["final_confidence"]))))
+    coverage = final_state.get("data_coverage")
+    if coverage:
+        details.append(("Data coverage", escape(f"{i18n.level(coverage['level'])} ({coverage['score']:.2f})")))
     if settings:
         s = settings.get
         for tier in ("deep", "quick"):
@@ -251,6 +270,16 @@ def _run_details(final_state: dict, settings: dict | None, ticker: str | None = 
     return details
 
 
+# The badge on a Data Coverage section that should be read first, by report language.
+_ALERT_LABEL = {False: "Low coverage or critical data missing", True: "資料覆蓋偏低或關鍵資料缺失"}
+
+
+def _unread_sentiment(agent: str, text: str) -> bool:
+    """Whether this is a sentiment report the program wrote because there was too little to read."""
+    first = (text or "").lstrip().splitlines()[0] if (text or "").strip() else ""
+    return agent == "Sentiment Analyst" and f"**{INSUFFICIENT_DATA_BAND}**" in first
+
+
 def render_report(ticker: str, final_state: dict, settings: dict | None, parts) -> str:
     """The report page: title and rating, what produced the run, contents, sections."""
     md = _markdown()
@@ -267,8 +296,16 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts) 
         for label, value in _run_details(final_state, settings, ticker)
     )
 
+    coverage = final_state.get("data_coverage") or {}
+    alert = coverage.get("level") == "low" or bool(coverage.get("capped_by"))
+    zh = i18n.report_language() == i18n.ZH
+    rules = ""
+    if coverage.get("capped_by"):
+        tools = ("、" if zh else ", ").join(i18n.tool(t) for t in coverage["capped_by"])
+        rules = f'<p class="gap-rules" role="note">{escape(i18n.phrase("rules_applied", tools=tools))}</p>'
+
     contents, body = [], []
-    for n, (heading, _folder, written) in enumerate(parts, 1):
+    for n, (heading, folder, written) in enumerate(parts, 1):
         agents = "".join(
             f'<li><a href="#s{n}-{m}"><span class="bar"></span> <span class="label">{escape(agent)}</span></a></li>'
             for m, (agent, _f, _t) in enumerate(written, 1)
@@ -276,14 +313,22 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts) 
         numeral, _, name = heading.partition(". ")
         contents.append(f'<li><a href="#s{n}"><span class="num">{escape(numeral)}</span> '
                         f'<span class="label">{escape(name)}</span></a><ul>{agents}</ul></li>')
-        body.append(f'<section id="s{n}"><h2>{escape(heading)}</h2>')
+        if folder == "0_coverage":
+            flag = f' <span class="coverage-flag">{escape(_ALERT_LABEL[zh])}</span>' if alert else ""
+            body.append(f'<section id="s{n}" class="coverage{" alert" if alert else ""}">'
+                        f'<h2>{escape(heading)}{flag}</h2>')
+        else:
+            body.append(f'<section id="s{n}"><h2>{escape(heading)}</h2>')
         for m, (agent, _filename, text) in enumerate(written, 1):
-            body.append(f'<h3 id="s{n}-{m}">{escape(agent)}</h3>\n{_render_agent_text(md, text)}')
+            rendered = _render_agent_text(md, text)
+            if _unread_sentiment(agent, text):
+                rendered = f'<div class="insufficient">{rendered}</div>'
+            body.append(f'<h3 id="s{n}-{m}">{escape(agent)}</h3>\n{rendered}')
         body.append("</section>")
 
     page_title = " ".join(x for x in (ticker, date, rating) if x)
     return f"""<!doctype html>
-<html lang="en">
+<html lang="{"zh-Hant" if zh else "en"}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -297,6 +342,7 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts) 
 <a class="logo" href="{_COMPANY}" rel="noopener" aria-label="Tauric Research">{_LOGO}</a>
 <h1>{title}</h1>
 <p class="date">{escape(f"Analysis of {date}" if date else "Analysis")}</p>
+{rules}
 <dl class="run">{details}</dl>
 </header>
 <nav class="contents" aria-label="Sections"><ul>{"".join(contents)}</ul></nav>
